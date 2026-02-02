@@ -1,0 +1,19 @@
+{
+  "name": "planner",
+  "version": "1.0.0",
+  "description": "Plataforma de gestion de tareas tipo Trello",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "cd client && npm run dev",
+    "dev:server": "cd server && npm run dev",
+    "build": "cd client && npm install && npm run build && cd ../server && npm install",
+    "start": "cd server && npm start",
+    "postinstall": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
