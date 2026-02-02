@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
 import { authenticateToken } from '../middleware/auth.js'
+import { notifyMention } from '../services/teams.js'
 
 const router = Router()
 
@@ -186,7 +187,7 @@ router.get('/:id/comments', authenticateToken, (req, res) => {
 })
 
 // Add comment
-router.post('/:id/comments', authenticateToken, (req, res) => {
+router.post('/:id/comments', authenticateToken, async (req, res) => {
   try {
     const { content } = req.body
     const commentId = uuidv4()
@@ -196,18 +197,43 @@ router.post('/:id/comments', authenticateToken, (req, res) => {
       VALUES (?, ?, ?, ?)
     `).run(commentId, req.params.id, req.user.id, content)
 
+    // Get card and board info for notifications
+    const card = db.prepare(`
+      SELECT c.*, col.board_id
+      FROM cards c
+      JOIN columns col ON c.column_id = col.id
+      WHERE c.id = ?
+    `).get(req.params.id)
+
+    const board = card ? db.prepare('SELECT name FROM boards WHERE id = ?').get(card.board_id) : null
+
     // Extract mentions and create notifications
     const mentions = content.match(/@(\w+)/g) || []
-    mentions.forEach(mention => {
+    for (const mention of mentions) {
       const userName = mention.slice(1)
-      const mentionedUser = db.prepare('SELECT id FROM users WHERE name LIKE ?').get(`%${userName}%`)
+      const mentionedUser = db.prepare('SELECT id, name, teams_webhook FROM users WHERE name LIKE ?').get(`%${userName}%`)
       if (mentionedUser) {
         db.prepare(`
           INSERT INTO mentions (id, card_id, comment_id, user_id)
           VALUES (?, ?, ?, ?)
         `).run(uuidv4(), req.params.id, commentId, mentionedUser.id)
+
+        // Send Teams notification if webhook is configured
+        if (mentionedUser.teams_webhook) {
+          const appUrl = process.env.APP_URL || 'http://localhost:5173'
+          const cardUrl = `${appUrl}/board/${card?.board_id}?card=${req.params.id}`
+
+          notifyMention(
+            mentionedUser,
+            req.user.name,
+            card?.title || 'Tarjeta',
+            content,
+            board?.name || 'Tablero',
+            cardUrl
+          ).catch(err => console.error('Teams notification error:', err))
+        }
       }
-    })
+    }
 
     const comment = db.prepare(`
       SELECT c.*, u.name as user_name

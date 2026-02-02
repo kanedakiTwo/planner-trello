@@ -35,3 +35,31 @@ export const addComment = (cardId, content) =>
 
 export const deleteComment = (commentId) =>
   api.delete(`/comments/${commentId}`)
+
+// Attachments
+export const getAttachments = (cardId) =>
+  api.get(`/cards/${cardId}/attachments`)
+
+export const uploadAttachment = async (cardId, file) => {
+  const token = localStorage.getItem('token')
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`/api/cards/${cardId}/attachments`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    body: formData
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Error al subir archivo' }))
+    throw new Error(error.message)
+  }
+
+  return response.json()
+}
+
+export const deleteAttachment = (attachmentId) =>
+  api.delete(`/attachments/${attachmentId}`)

@@ -26,17 +26,21 @@ export default function CardModal({ card, onClose }) {
   const [users, setUsers] = useState([])
   const [assignees, setAssignees] = useState(card.assignees || [])
   const [labels, setLabels] = useState(card.labels || [])
+  const [attachments, setAttachments] = useState([])
+  const [uploadingFile, setUploadingFile] = useState(false)
   const [showUserDropdown, setShowUserDropdown] = useState(false)
   const [showLabelPicker, setShowLabelPicker] = useState(false)
   const [mentionSearch, setMentionSearch] = useState('')
   const [mentionIndex, setMentionIndex] = useState(-1)
   const commentInputRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   const column = columns.find(col => col.id === card.column_id)
 
   useEffect(() => {
     getUsers().then(setUsers).catch(console.error)
     cardService.getComments(card.id).then(setComments).catch(console.error)
+    cardService.getAttachments(card.id).then(setAttachments).catch(console.error)
   }, [card.id])
 
   const handleSave = async () => {
@@ -114,6 +118,45 @@ export default function CardModal({ card, onClose }) {
   const handleRemoveLabel = async (labelId) => {
     await cardService.removeLabel(card.id, labelId)
     setLabels(prev => prev.filter(l => l.id !== labelId))
+  }
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadingFile(true)
+    try {
+      const attachment = await cardService.uploadAttachment(card.id, file)
+      setAttachments(prev => [attachment, ...prev])
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setUploadingFile(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleDeleteAttachment = async (attachmentId) => {
+    if (!confirm('Eliminar este adjunto?')) return
+
+    await cardService.deleteAttachment(attachmentId)
+    setAttachments(prev => prev.filter(a => a.id !== attachmentId))
+  }
+
+  const getFileIcon = (fileType) => {
+    if (fileType?.startsWith('image/')) return '🖼️'
+    if (fileType?.includes('pdf')) return '📄'
+    if (fileType?.includes('word') || fileType?.includes('document')) return '📝'
+    if (fileType?.includes('excel') || fileType?.includes('spreadsheet')) return '📊'
+    if (fileType?.includes('zip') || fileType?.includes('archive')) return '📦'
+    return '📎'
+  }
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return ''
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
   return (
@@ -200,6 +243,71 @@ export default function CardModal({ card, onClose }) {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                 rows={4}
               />
+            </div>
+
+            {/* Attachments */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Adjuntos</h4>
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleFileUpload}
+                className="hidden"
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingFile}
+                className="mb-3 px-3 py-2 border border-dashed border-gray-300 rounded-lg text-gray-500 text-sm hover:border-blue-400 hover:text-blue-500 w-full flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {uploadingFile ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Subiendo...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    Adjuntar archivo
+                  </>
+                )}
+              </button>
+
+              {attachments.length > 0 && (
+                <div className="space-y-2">
+                  {attachments.map(attachment => (
+                    <div key={attachment.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg group">
+                      <span className="text-xl">{getFileIcon(attachment.file_type)}</span>
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={attachment.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-blue-600 hover:underline truncate block"
+                        >
+                          {attachment.filename}
+                        </a>
+                        <p className="text-xs text-gray-400">
+                          {formatFileSize(attachment.file_size)} - {attachment.uploaded_by_name}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteAttachment(attachment.id)}
+                        className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Comments */}

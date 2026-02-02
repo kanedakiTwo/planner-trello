@@ -11,3 +11,9 @@ export const getProfile = () =>
 
 export const getUsers = () =>
   api.get('/users')
+
+export const getUserSettings = () =>
+  api.get('/users/me/settings')
+
+export const updateTeamsWebhook = (webhookUrl) =>
+  api.put('/users/me/teams-webhook', { webhookUrl })

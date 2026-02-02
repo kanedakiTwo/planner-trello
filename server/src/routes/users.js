@@ -39,4 +39,34 @@ router.get('/:id', authenticateToken, (req, res) => {
   }
 })
 
+// Get current user settings (including webhook)
+router.get('/me/settings', authenticateToken, (req, res) => {
+  try {
+    const user = db.prepare(`
+      SELECT id, email, name, department, role, teams_webhook
+      FROM users WHERE id = ?
+    `).get(req.user.id)
+
+    res.json(user)
+  } catch (error) {
+    console.error('Get settings error:', error)
+    res.status(500).json({ message: 'Error al obtener configuracion' })
+  }
+})
+
+// Update Teams webhook
+router.put('/me/teams-webhook', authenticateToken, (req, res) => {
+  try {
+    const { webhookUrl } = req.body
+
+    db.prepare('UPDATE users SET teams_webhook = ? WHERE id = ?')
+      .run(webhookUrl || null, req.user.id)
+
+    res.json({ message: 'Webhook de Teams actualizado' })
+  } catch (error) {
+    console.error('Update webhook error:', error)
+    res.status(500).json({ message: 'Error al actualizar webhook' })
+  }
+})
+
 export default router

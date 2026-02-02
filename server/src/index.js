@@ -11,6 +11,7 @@ import usersRoutes from './routes/users.js'
 import boardsRoutes from './routes/boards.js'
 import columnsRoutes from './routes/columns.js'
 import cardsRoutes from './routes/cards.js'
+import attachmentsRoutes from './routes/attachments.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -28,6 +29,7 @@ app.use('/api/users', usersRoutes)
 app.use('/api/boards', boardsRoutes)
 app.use('/api/columns', columnsRoutes)
 app.use('/api/cards', cardsRoutes)
+app.use('/api', attachmentsRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {

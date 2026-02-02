@@ -2,13 +2,17 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useBoard } from '../context/BoardContext'
+import { getUserSettings, updateTeamsWebhook } from '../services/auth'
 
 export default function Dashboard() {
   const { user, logout } = useAuth()
   const { boards, fetchBoards, createBoard, loading } = useBoard()
   const [showModal, setShowModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [newBoardName, setNewBoardName] = useState('')
   const [newBoardDesc, setNewBoardDesc] = useState('')
+  const [teamsWebhook, setTeamsWebhook] = useState('')
+  const [savingWebhook, setSavingWebhook] = useState(false)
 
   useEffect(() => {
     fetchBoards()
@@ -24,6 +28,29 @@ export default function Dashboard() {
     setShowModal(false)
   }
 
+  const handleOpenSettings = async () => {
+    try {
+      const settings = await getUserSettings()
+      setTeamsWebhook(settings.teams_webhook || '')
+    } catch (error) {
+      console.error('Error loading settings:', error)
+    }
+    setShowSettingsModal(true)
+  }
+
+  const handleSaveWebhook = async (e) => {
+    e.preventDefault()
+    setSavingWebhook(true)
+    try {
+      await updateTeamsWebhook(teamsWebhook)
+      setShowSettingsModal(false)
+    } catch (error) {
+      alert('Error al guardar webhook')
+    } finally {
+      setSavingWebhook(false)
+    }
+  }
+
   const boardColors = [
     'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500',
     'bg-yellow-500', 'bg-indigo-500', 'bg-red-500', 'bg-teal-500'
@@ -36,6 +63,16 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-800">Planner</h1>
           <div className="flex items-center gap-4">
+            <button
+              onClick={handleOpenSettings}
+              className="text-gray-500 hover:text-gray-700"
+              title="Configuracion"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
             <div className="text-right">
               <p className="font-medium text-gray-800">{user?.name}</p>
               <p className="text-sm text-gray-500">{user?.department}</p>
@@ -98,7 +135,7 @@ export default function Dashboard() {
         )}
       </main>
 
-      {/* Modal */}
+      {/* Create Board Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
@@ -143,6 +180,67 @@ export default function Dashboard() {
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                 >
                   Crear tablero
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">Configuracion</h3>
+            <form onSubmit={handleSaveWebhook}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Microsoft Teams Webhook URL
+                </label>
+                <input
+                  type="url"
+                  value={teamsWebhook}
+                  onChange={(e) => setTeamsWebhook(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  placeholder="https://outlook.office.com/webhook/..."
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Configura un webhook de Teams para recibir notificaciones cuando te mencionen.
+                  <a
+                    href="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 hover:underline ml-1"
+                  >
+                    Como crear un webhook
+                  </a>
+                </p>
+              </div>
+
+              <div className="bg-blue-50 rounded-lg p-3 mb-4">
+                <h4 className="text-sm font-medium text-blue-800 mb-1">Instrucciones rapidas:</h4>
+                <ol className="text-xs text-blue-700 list-decimal list-inside space-y-1">
+                  <li>Abre Teams y ve al canal deseado</li>
+                  <li>Click en "..." → Conectores → Incoming Webhook</li>
+                  <li>Configura el nombre y copia la URL</li>
+                  <li>Pega la URL aqui</li>
+                </ol>
+              </div>
+
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingWebhook}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingWebhook ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </form>

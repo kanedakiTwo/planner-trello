@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     avatar TEXT,
     department TEXT,
     role TEXT DEFAULT 'member',
+    teams_webhook TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -95,6 +96,21 @@ CREATE TABLE IF NOT EXISTS mentions (
     FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
     FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Attachments table
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    url TEXT NOT NULL,
+    public_id TEXT,
+    file_type TEXT,
+    file_size INTEGER,
+    uploaded_by TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploaded_by) REFERENCES users(id)
 );
 
 -- Create indexes for performance
