@@ -13,6 +13,16 @@ import columnsRoutes from './routes/columns.js'
 import cardsRoutes from './routes/cards.js'
 import attachmentsRoutes from './routes/attachments.js'
 
+// Bot imports (conditional to avoid errors if not configured)
+let adapter, bot, pendingLinks
+if (process.env.MICROSOFT_APP_ID) {
+  const adapterModule = await import('./bot/adapter.js')
+  const botModule = await import('./bot/teamsBot.js')
+  adapter = adapterModule.adapter
+  bot = new botModule.PlannerBot()
+  pendingLinks = botModule.pendingLinks
+}
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
@@ -31,9 +41,20 @@ app.use('/api/columns', columnsRoutes)
 app.use('/api/cards', cardsRoutes)
 app.use('/api', attachmentsRoutes)
 
+// Bot endpoint - receives messages from Teams
+if (adapter && bot) {
+  app.post('/api/messages', async (req, res) => {
+    await adapter.process(req, res, (context) => bot.run(context))
+  })
+}
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    teamsBot: !!adapter
+  })
 })
 
 // Serve static files in production
@@ -53,6 +74,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Error interno del servidor' })
 })
 
+// Export pendingLinks for use in routes
+export { pendingLinks }
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor corriendo en puerto ${PORT}`)
+  if (adapter) {
+    console.log('Bot de Teams habilitado')
+  }
 })

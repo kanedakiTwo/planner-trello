@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useBoard } from '../context/BoardContext'
-import { getUserSettings, updateTeamsWebhook } from '../services/auth'
+import { getUserSettings, updateTeamsWebhook, linkTeamsAccount, unlinkTeamsAccount } from '../services/auth'
 
 export default function Dashboard() {
   const { user, logout } = useAuth()
@@ -13,6 +13,10 @@ export default function Dashboard() {
   const [newBoardDesc, setNewBoardDesc] = useState('')
   const [teamsWebhook, setTeamsWebhook] = useState('')
   const [savingWebhook, setSavingWebhook] = useState(false)
+  const [teamsLinked, setTeamsLinked] = useState(false)
+  const [linkCode, setLinkCode] = useState('')
+  const [linkingTeams, setLinkingTeams] = useState(false)
+  const [linkError, setLinkError] = useState('')
 
   useEffect(() => {
     fetchBoards()
@@ -32,10 +36,41 @@ export default function Dashboard() {
     try {
       const settings = await getUserSettings()
       setTeamsWebhook(settings.teams_webhook || '')
+      setTeamsLinked(settings.teamsLinked || false)
+      setLinkCode('')
+      setLinkError('')
     } catch (error) {
       console.error('Error loading settings:', error)
     }
     setShowSettingsModal(true)
+  }
+
+  const handleLinkTeams = async (e) => {
+    e.preventDefault()
+    if (!linkCode.trim()) return
+
+    setLinkingTeams(true)
+    setLinkError('')
+    try {
+      await linkTeamsAccount(linkCode.trim())
+      setTeamsLinked(true)
+      setLinkCode('')
+    } catch (error) {
+      setLinkError(error.response?.data?.message || 'Error al vincular cuenta')
+    } finally {
+      setLinkingTeams(false)
+    }
+  }
+
+  const handleUnlinkTeams = async () => {
+    if (!confirm('Desvincular cuenta de Teams?')) return
+
+    try {
+      await unlinkTeamsAccount()
+      setTeamsLinked(false)
+    } catch (error) {
+      alert('Error al desvincular cuenta')
+    }
   }
 
   const handleSaveWebhook = async (e) => {
@@ -190,12 +225,79 @@ export default function Dashboard() {
       {/* Settings Modal */}
       {showSettingsModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-gray-800 mb-4">Configuracion</h3>
+
+            {/* Teams Bot Linking Section */}
+            <div className="mb-6 border-b pb-6">
+              <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                <svg className="w-5 h-5 text-purple-600" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19.5 6h-3V4.5A1.5 1.5 0 0015 3H9a1.5 1.5 0 00-1.5 1.5V6h-3A1.5 1.5 0 003 7.5v12A1.5 1.5 0 004.5 21h15a1.5 1.5 0 001.5-1.5v-12A1.5 1.5 0 0019.5 6zM9 4.5h6V6H9V4.5z"/>
+                </svg>
+                Bot de Teams (Mensajes personales)
+              </h4>
+
+              {teamsLinked ? (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-sm text-green-700 font-medium">Cuenta de Teams vinculada</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleUnlinkTeams}
+                      className="text-xs text-red-600 hover:text-red-800"
+                    >
+                      Desvincular
+                    </button>
+                  </div>
+                  <p className="text-xs text-green-600 mt-1">
+                    Recibiras notificaciones como mensajes personales del bot.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-purple-50 rounded-lg p-3 mb-3">
+                    <h5 className="text-sm font-medium text-purple-800 mb-2">Como vincular tu cuenta:</h5>
+                    <ol className="text-xs text-purple-700 list-decimal list-inside space-y-1">
+                      <li>Abre Teams y busca el bot "Planner"</li>
+                      <li>Envia el mensaje <code className="bg-purple-100 px-1 rounded">conectar</code></li>
+                      <li>El bot te dara un codigo de 6 caracteres</li>
+                      <li>Ingresa ese codigo aqui abajo</li>
+                    </ol>
+                  </div>
+                  <form onSubmit={handleLinkTeams} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={linkCode}
+                      onChange={(e) => setLinkCode(e.target.value.toUpperCase())}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm uppercase tracking-widest text-center font-mono"
+                      placeholder="ABC123"
+                      maxLength={6}
+                    />
+                    <button
+                      type="submit"
+                      disabled={linkingTeams || linkCode.length < 6}
+                      className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm"
+                    >
+                      {linkingTeams ? '...' : 'Vincular'}
+                    </button>
+                  </form>
+                  {linkError && (
+                    <p className="text-xs text-red-600 mt-2">{linkError}</p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Webhook Section (Fallback) */}
             <form onSubmit={handleSaveWebhook}>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Microsoft Teams Webhook URL
+                  Webhook de Teams (alternativo)
                 </label>
                 <input
                   type="url"
@@ -205,26 +307,8 @@ export default function Dashboard() {
                   placeholder="https://outlook.office.com/webhook/..."
                 />
                 <p className="text-xs text-gray-500 mt-2">
-                  Configura un webhook de Teams para recibir notificaciones cuando te mencionen.
-                  <a
-                    href="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-500 hover:underline ml-1"
-                  >
-                    Como crear un webhook
-                  </a>
+                  Si no puedes usar el bot, configura un webhook para recibir notificaciones en un canal.
                 </p>
-              </div>
-
-              <div className="bg-blue-50 rounded-lg p-3 mb-4">
-                <h4 className="text-sm font-medium text-blue-800 mb-1">Instrucciones rapidas:</h4>
-                <ol className="text-xs text-blue-700 list-decimal list-inside space-y-1">
-                  <li>Abre Teams y ve al canal deseado</li>
-                  <li>Click en "..." → Conectores → Incoming Webhook</li>
-                  <li>Configura el nombre y copia la URL</li>
-                  <li>Pega la URL aqui</li>
-                </ol>
               </div>
 
               <div className="flex gap-3 justify-end">
@@ -233,14 +317,14 @@ export default function Dashboard() {
                   onClick={() => setShowSettingsModal(false)}
                   className="px-4 py-2 text-gray-600 hover:text-gray-800"
                 >
-                  Cancelar
+                  Cerrar
                 </button>
                 <button
                   type="submit"
                   disabled={savingWebhook}
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {savingWebhook ? 'Guardando...' : 'Guardar'}
+                  {savingWebhook ? 'Guardando...' : 'Guardar Webhook'}
                 </button>
               </div>
             </form>

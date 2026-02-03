@@ -17,3 +17,9 @@ export const getUserSettings = () =>
 
 export const updateTeamsWebhook = (webhookUrl) =>
   api.put('/users/me/teams-webhook', { webhookUrl })
+
+export const linkTeamsAccount = (code) =>
+  api.post('/users/me/teams-link', { code })
+
+export const unlinkTeamsAccount = () =>
+  api.delete('/users/me/teams-link')

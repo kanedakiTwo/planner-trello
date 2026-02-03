@@ -1,0 +1,62 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "{{MICROSOFT_APP_ID}}",
+  "packageName": "com.planner.teamsbot",
+  "developer": {
+    "name": "Planner App",
+    "websiteUrl": "https://{{APP_DOMAIN}}",
+    "privacyUrl": "https://{{APP_DOMAIN}}/privacy",
+    "termsOfUseUrl": "https://{{APP_DOMAIN}}/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "Planner",
+    "full": "Planner - Gestion de Tareas"
+  },
+  "description": {
+    "short": "Recibe notificaciones de menciones en Planner",
+    "full": "Bot de Planner para recibir notificaciones personales cuando te mencionan en tarjetas o comentarios. Vincula tu cuenta escribiendo 'conectar' al bot."
+  },
+  "accentColor": "#3B82F6",
+  "bots": [
+    {
+      "botId": "{{MICROSOFT_APP_ID}}",
+      "scopes": [
+        "personal"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal"],
+          "commands": [
+            {
+              "title": "conectar",
+              "description": "Vincula tu cuenta de Planner para recibir notificaciones"
+            },
+            {
+              "title": "ayuda",
+              "description": "Muestra los comandos disponibles"
+            },
+            {
+              "title": "estado",
+              "description": "Verifica el estado de tu vinculacion"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "{{APP_DOMAIN}}"
+  ]
+}

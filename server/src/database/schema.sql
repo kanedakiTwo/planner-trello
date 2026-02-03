@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
     department TEXT,
     role TEXT DEFAULT 'member',
     teams_webhook TEXT,
+    teams_user_id TEXT,
+    teams_conversation_ref TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
