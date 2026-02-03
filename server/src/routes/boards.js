@@ -6,9 +6,9 @@ import { authenticateToken } from '../middleware/auth.js'
 const router = Router()
 
 // Get all boards for user
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const boards = db.prepare(`
+    const boards = await db.prepare(`
       SELECT DISTINCT b.*
       FROM boards b
       LEFT JOIN board_members bm ON b.id = bm.board_id
@@ -24,23 +24,23 @@ router.get('/', authenticateToken, (req, res) => {
 })
 
 // Get single board with columns and cards
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id)
+    const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id)
 
     if (!board) {
       return res.status(404).json({ message: 'Tablero no encontrado' })
     }
 
-    const columns = db.prepare(`
+    const columns = await db.prepare(`
       SELECT * FROM columns
       WHERE board_id = ?
       ORDER BY position
     `).all(req.params.id)
 
     // Get cards for each column with assignees and labels
-    const columnsWithCards = columns.map(column => {
-      const cards = db.prepare(`
+    const columnsWithCards = await Promise.all(columns.map(async column => {
+      const cards = await db.prepare(`
         SELECT c.*,
           (SELECT COUNT(*) FROM comments WHERE card_id = c.id) as comments_count
         FROM cards c
@@ -48,23 +48,23 @@ router.get('/:id', authenticateToken, (req, res) => {
         ORDER BY c.position
       `).all(column.id)
 
-      const cardsWithDetails = cards.map(card => {
-        const assignees = db.prepare(`
+      const cardsWithDetails = await Promise.all(cards.map(async card => {
+        const assignees = await db.prepare(`
           SELECT u.id, u.name, u.email, u.department
           FROM card_assignees ca
           JOIN users u ON ca.user_id = u.id
           WHERE ca.card_id = ?
         `).all(card.id)
 
-        const labels = db.prepare(`
+        const labels = await db.prepare(`
           SELECT * FROM card_labels WHERE card_id = ?
         `).all(card.id)
 
         return { ...card, assignees, labels }
-      })
+      }))
 
       return { ...column, cards: cardsWithDetails }
-    })
+    }))
 
     res.json({ board, columns: columnsWithCards })
   } catch (error) {
@@ -74,32 +74,32 @@ router.get('/:id', authenticateToken, (req, res) => {
 })
 
 // Create board
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const { name, description } = req.body
     const boardId = uuidv4()
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO boards (id, name, description, owner_id)
       VALUES (?, ?, ?, ?)
     `).run(boardId, name, description || null, req.user.id)
 
     // Add owner as member
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO board_members (board_id, user_id, role)
       VALUES (?, ?, 'admin')
     `).run(boardId, req.user.id)
 
     // Create default columns
     const defaultColumns = ['Por hacer', 'En progreso', 'Hecho']
-    defaultColumns.forEach((colName, index) => {
-      db.prepare(`
+    for (let index = 0; index < defaultColumns.length; index++) {
+      await db.prepare(`
         INSERT INTO columns (id, board_id, name, position)
         VALUES (?, ?, ?, ?)
-      `).run(uuidv4(), boardId, colName, index)
-    })
+      `).run(uuidv4(), boardId, defaultColumns[index], index)
+    }
 
-    const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(boardId)
+    const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(boardId)
     res.status(201).json(board)
   } catch (error) {
     console.error('Create board error:', error)
@@ -108,16 +108,16 @@ router.post('/', authenticateToken, (req, res) => {
 })
 
 // Update board
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { name, description } = req.body
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE boards SET name = ?, description = ?
       WHERE id = ?
     `).run(name, description, req.params.id)
 
-    const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id)
+    const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id)
     res.json(board)
   } catch (error) {
     console.error('Update board error:', error)
@@ -126,9 +126,9 @@ router.put('/:id', authenticateToken, (req, res) => {
 })
 
 // Delete board
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    db.prepare('DELETE FROM boards WHERE id = ?').run(req.params.id)
+    await db.prepare('DELETE FROM boards WHERE id = ?').run(req.params.id)
     res.json({ message: 'Tablero eliminado' })
   } catch (error) {
     console.error('Delete board error:', error)
@@ -137,24 +137,24 @@ router.delete('/:id', authenticateToken, (req, res) => {
 })
 
 // Add column to board
-router.post('/:boardId/columns', authenticateToken, (req, res) => {
+router.post('/:boardId/columns', authenticateToken, async (req, res) => {
   try {
     const { name } = req.body
     const columnId = uuidv4()
 
     // Get max position
-    const maxPos = db.prepare(`
+    const maxPos = await db.prepare(`
       SELECT MAX(position) as max FROM columns WHERE board_id = ?
     `).get(req.params.boardId)
 
     const position = (maxPos?.max ?? -1) + 1
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO columns (id, board_id, name, position)
       VALUES (?, ?, ?, ?)
     `).run(columnId, req.params.boardId, name, position)
 
-    const column = db.prepare('SELECT * FROM columns WHERE id = ?').get(columnId)
+    const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(columnId)
     res.status(201).json(column)
   } catch (error) {
     console.error('Create column error:', error)
@@ -163,9 +163,9 @@ router.post('/:boardId/columns', authenticateToken, (req, res) => {
 })
 
 // Get board members
-router.get('/:boardId/members', authenticateToken, (req, res) => {
+router.get('/:boardId/members', authenticateToken, async (req, res) => {
   try {
-    const members = db.prepare(`
+    const members = await db.prepare(`
       SELECT u.id, u.name, u.email, u.department, bm.role
       FROM board_members bm
       JOIN users u ON bm.user_id = u.id
@@ -180,13 +180,14 @@ router.get('/:boardId/members', authenticateToken, (req, res) => {
 })
 
 // Add board member
-router.post('/:boardId/members', authenticateToken, (req, res) => {
+router.post('/:boardId/members', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.body
 
-    db.prepare(`
-      INSERT OR IGNORE INTO board_members (board_id, user_id, role)
+    await db.prepare(`
+      INSERT INTO board_members (board_id, user_id, role)
       VALUES (?, ?, 'member')
+      ON CONFLICT DO NOTHING
     `).run(req.params.boardId, userId)
 
     res.json({ message: 'Miembro agregado' })

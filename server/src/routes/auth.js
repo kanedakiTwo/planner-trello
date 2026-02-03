@@ -13,7 +13,7 @@ router.post('/register', async (req, res) => {
     const { email, password, name, department } = req.body
 
     // Check if user exists
-    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email)
+    const existingUser = await db.prepare('SELECT id FROM users WHERE email = ?').get(email)
     if (existingUser) {
       return res.status(400).json({ message: 'El email ya esta registrado' })
     }
@@ -23,7 +23,7 @@ router.post('/register', async (req, res) => {
 
     // Create user
     const userId = uuidv4()
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO users (id, email, password_hash, name, department)
       VALUES (?, ?, ?, ?, ?)
     `).run(userId, email, passwordHash, name, department)
@@ -51,7 +51,7 @@ router.post('/login', async (req, res) => {
     const { email, password } = req.body
 
     // Find user
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email)
+    const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email)
     if (!user) {
       return res.status(401).json({ message: 'Credenciales invalidas' })
     }
@@ -86,12 +86,17 @@ router.post('/login', async (req, res) => {
 })
 
 // Get profile
-router.get('/profile', authenticateToken, (req, res) => {
-  const user = db.prepare('SELECT id, email, name, department, role FROM users WHERE id = ?').get(req.user.id)
-  if (!user) {
-    return res.status(404).json({ message: 'Usuario no encontrado' })
+router.get('/profile', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.prepare('SELECT id, email, name, department, role FROM users WHERE id = ?').get(req.user.id)
+    if (!user) {
+      return res.status(404).json({ message: 'Usuario no encontrado' })
+    }
+    res.json({ user })
+  } catch (error) {
+    console.error('Profile error:', error)
+    res.status(500).json({ message: 'Error al obtener perfil' })
   }
-  res.json({ user })
 })
 
 export default router

@@ -68,7 +68,7 @@ Una vez vinculado, recibiras un mensaje personal cuando alguien te mencione en u
 
   async sendStatusMessage(context) {
     const teamsUserId = context.activity.from.id
-    const user = db.prepare('SELECT * FROM users WHERE teams_user_id = ?').get(teamsUserId)
+    const user = await db.prepare('SELECT * FROM users WHERE teams_user_id = ?').get(teamsUserId)
 
     if (user) {
       await context.sendActivity(`Tu cuenta de Teams esta vinculada a **${user.name}** (${user.email}).`)
@@ -83,7 +83,7 @@ Una vez vinculado, recibiras un mensaje personal cuando alguien te mencione en u
     const conversationRef = TurnContext.getConversationReference(context.activity)
 
     // Check if already linked
-    const existingUser = db.prepare('SELECT * FROM users WHERE teams_user_id = ?').get(teamsUserId)
+    const existingUser = await db.prepare('SELECT * FROM users WHERE teams_user_id = ?').get(teamsUserId)
 
     if (existingUser) {
       await context.sendActivity(`Ya estas vinculado a la cuenta **${existingUser.name}** (${existingUser.email}).`)

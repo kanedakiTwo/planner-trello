@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     teams_webhook TEXT,
     teams_user_id TEXT,
     teams_conversation_ref TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Boards table
@@ -18,101 +18,85 @@ CREATE TABLE IF NOT EXISTS boards (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
-    owner_id TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (owner_id) REFERENCES users(id)
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Board members
 CREATE TABLE IF NOT EXISTS board_members (
-    board_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
+    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role TEXT DEFAULT 'member',
-    PRIMARY KEY (board_id, user_id),
-    FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    PRIMARY KEY (board_id, user_id)
 );
 
 -- Columns table
 CREATE TABLE IF NOT EXISTS columns (
     id TEXT PRIMARY KEY,
-    board_id TEXT NOT NULL,
+    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     position INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Cards table
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
-    column_id TEXT NOT NULL,
+    column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     description TEXT,
     priority TEXT,
     due_date DATE,
     position INTEGER NOT NULL,
-    created_by TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id)
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Card assignees
 CREATE TABLE IF NOT EXISTS card_assignees (
-    card_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    PRIMARY KEY (card_id, user_id),
-    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (card_id, user_id)
 );
 
 -- Card labels
 CREATE TABLE IF NOT EXISTS card_labels (
     id TEXT PRIMARY KEY,
-    card_id TEXT NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    color TEXT NOT NULL,
-    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+    color TEXT NOT NULL
 );
 
 -- Comments table
 CREATE TABLE IF NOT EXISTS comments (
     id TEXT PRIMARY KEY,
-    card_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
     content TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Mentions table
 CREATE TABLE IF NOT EXISTS mentions (
     id TEXT PRIMARY KEY,
-    card_id TEXT,
-    comment_id TEXT,
-    user_id TEXT NOT NULL,
-    notified INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
-    FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    card_id TEXT REFERENCES cards(id) ON DELETE CASCADE,
+    comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    notified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Attachments table
 CREATE TABLE IF NOT EXISTS attachments (
     id TEXT PRIMARY KEY,
-    card_id TEXT NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
     url TEXT NOT NULL,
     public_id TEXT,
     file_type TEXT,
     file_size INTEGER,
-    uploaded_by TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
-    FOREIGN KEY (uploaded_by) REFERENCES users(id)
+    uploaded_by TEXT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create indexes for performance

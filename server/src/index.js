@@ -49,10 +49,11 @@ if (adapter && bot) {
 }
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
+    database: 'postgresql',
     teamsBot: !!adapter
   })
 })

@@ -1,79 +1,68 @@
-import initSqlJs from 'sql.js'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import pg from 'pg'
+import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const dbPath = join(__dirname, '../../planner.db')
-const schemaPath = join(__dirname, 'schema.sql')
+const { Pool } = pg
 
-// Initialize SQL.js
-const SQL = await initSqlJs()
+// Use DATABASE_URL from Railway or fallback to local
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : false
+})
 
-// Load existing database or create new one
-let db
-if (existsSync(dbPath)) {
-  const buffer = readFileSync(dbPath)
-  db = new SQL.Database(buffer)
-} else {
-  db = new SQL.Database()
+// Initialize schema
+async function initializeDatabase() {
+  const schemaPath = join(__dirname, 'schema.sql')
+  const schema = readFileSync(schemaPath, 'utf8')
+
+  try {
+    await pool.query(schema)
+    console.log('Database schema initialized')
+  } catch (error) {
+    // Tables might already exist
+    if (!error.message.includes('already exists')) {
+      console.error('Schema initialization error:', error.message)
+    }
+  }
 }
 
-// Enable foreign keys
-db.run('PRAGMA foreign_keys = ON')
+// Initialize on startup
+await initializeDatabase()
 
-// Initialize database with schema
-const schema = readFileSync(schemaPath, 'utf8')
-db.run(schema)
-
-// Save database periodically and on changes
-function saveDatabase() {
-  const data = db.export()
-  const buffer = Buffer.from(data)
-  writeFileSync(dbPath, buffer)
-}
-
-// Create a wrapper that mimics better-sqlite3 API
+// Create a wrapper that mimics better-sqlite3 sync API but uses async pg
 const dbWrapper = {
   prepare(sql) {
+    // Convert SQLite ? placeholders to PostgreSQL $1, $2, etc.
+    let paramIndex = 0
+    const pgSql = sql.replace(/\?/g, () => `$${++paramIndex}`)
+
     return {
-      run(...params) {
-        db.run(sql, params)
-        saveDatabase()
-        return { changes: db.getRowsModified() }
+      async run(...params) {
+        const result = await pool.query(pgSql, params)
+        return { changes: result.rowCount }
       },
-      get(...params) {
-        const stmt = db.prepare(sql)
-        stmt.bind(params)
-        if (stmt.step()) {
-          const row = stmt.getAsObject()
-          stmt.free()
-          return row
-        }
-        stmt.free()
-        return undefined
+      async get(...params) {
+        const result = await pool.query(pgSql, params)
+        return result.rows[0] || undefined
       },
-      all(...params) {
-        const results = []
-        const stmt = db.prepare(sql)
-        stmt.bind(params)
-        while (stmt.step()) {
-          results.push(stmt.getAsObject())
-        }
-        stmt.free()
-        return results
+      async all(...params) {
+        const result = await pool.query(pgSql, params)
+        return result.rows
       }
     }
   },
-  exec(sql) {
-    db.run(sql)
-    saveDatabase()
+  async exec(sql) {
+    await pool.query(sql)
   },
-  pragma(statement) {
-    db.run(`PRAGMA ${statement}`)
+  async query(sql, params = []) {
+    const result = await pool.query(sql, params)
+    return result.rows
   }
 }
 
 export default dbWrapper
+export { pool }

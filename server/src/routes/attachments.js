@@ -7,9 +7,9 @@ import { authenticateToken } from '../middleware/auth.js'
 const router = Router()
 
 // Get attachments for a card
-router.get('/cards/:cardId/attachments', authenticateToken, (req, res) => {
+router.get('/cards/:cardId/attachments', authenticateToken, async (req, res) => {
   try {
-    const attachments = db.prepare(`
+    const attachments = await db.prepare(`
       SELECT a.*, u.name as uploaded_by_name
       FROM attachments a
       JOIN users u ON a.uploaded_by = u.id
@@ -39,12 +39,12 @@ router.post('/cards/:cardId/attachments', authenticateToken, upload.single('file
     const fileType = req.file.mimetype
     const fileSize = req.file.size
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO attachments (id, card_id, filename, url, public_id, file_type, file_size, uploaded_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(attachmentId, req.params.cardId, originalname, url, public_id, fileType, fileSize, req.user.id)
 
-    const attachment = db.prepare(`
+    const attachment = await db.prepare(`
       SELECT a.*, u.name as uploaded_by_name
       FROM attachments a
       JOIN users u ON a.uploaded_by = u.id
@@ -61,7 +61,7 @@ router.post('/cards/:cardId/attachments', authenticateToken, upload.single('file
 // Delete attachment
 router.delete('/attachments/:id', authenticateToken, async (req, res) => {
   try {
-    const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(req.params.id)
+    const attachment = await db.prepare('SELECT * FROM attachments WHERE id = ?').get(req.params.id)
 
     if (!attachment) {
       return res.status(404).json({ message: 'Adjunto no encontrado' })
@@ -77,7 +77,7 @@ router.delete('/attachments/:id', authenticateToken, async (req, res) => {
     }
 
     // Delete from database
-    db.prepare('DELETE FROM attachments WHERE id = ?').run(req.params.id)
+    await db.prepare('DELETE FROM attachments WHERE id = ?').run(req.params.id)
 
     res.json({ message: 'Adjunto eliminado' })
   } catch (error) {

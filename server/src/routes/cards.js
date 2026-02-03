@@ -7,22 +7,22 @@ import { notifyMention } from '../services/teams.js'
 const router = Router()
 
 // Get card details
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id)
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id)
 
     if (!card) {
       return res.status(404).json({ message: 'Tarjeta no encontrada' })
     }
 
-    const assignees = db.prepare(`
+    const assignees = await db.prepare(`
       SELECT u.id, u.name, u.email, u.department
       FROM card_assignees ca
       JOIN users u ON ca.user_id = u.id
       WHERE ca.card_id = ?
     `).all(req.params.id)
 
-    const labels = db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(req.params.id)
+    const labels = await db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(req.params.id)
 
     res.json({ ...card, assignees, labels })
   } catch (error) {
@@ -32,7 +32,7 @@ router.get('/:id', authenticateToken, (req, res) => {
 })
 
 // Update card
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { title, description, priority, due_date } = req.body
 
@@ -58,10 +58,10 @@ router.put('/:id', authenticateToken, (req, res) => {
 
     if (updates.length > 0) {
       values.push(req.params.id)
-      db.prepare(`UPDATE cards SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+      await db.prepare(`UPDATE cards SET ${updates.join(', ')} WHERE id = ?`).run(...values)
     }
 
-    const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id)
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id)
     res.json(card)
   } catch (error) {
     console.error('Update card error:', error)
@@ -70,24 +70,24 @@ router.put('/:id', authenticateToken, (req, res) => {
 })
 
 // Move card
-router.patch('/:id/move', authenticateToken, (req, res) => {
+router.patch('/:id/move', authenticateToken, async (req, res) => {
   try {
     const { columnId, position } = req.body
 
     // Update card position and column
-    db.prepare(`
+    await db.prepare(`
       UPDATE cards SET column_id = ?, position = ? WHERE id = ?
     `).run(columnId, position, req.params.id)
 
     // Reorder other cards in target column
-    const cards = db.prepare(`
+    const cards = await db.prepare(`
       SELECT id FROM cards WHERE column_id = ? AND id != ? ORDER BY position
     `).all(columnId, req.params.id)
 
-    cards.forEach((card, index) => {
+    for (let index = 0; index < cards.length; index++) {
       const newPosition = index >= position ? index + 1 : index
-      db.prepare('UPDATE cards SET position = ? WHERE id = ?').run(newPosition, card.id)
-    })
+      await db.prepare('UPDATE cards SET position = ? WHERE id = ?').run(newPosition, cards[index].id)
+    }
 
     res.json({ message: 'Tarjeta movida' })
   } catch (error) {
@@ -97,9 +97,9 @@ router.patch('/:id/move', authenticateToken, (req, res) => {
 })
 
 // Delete card
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    db.prepare('DELETE FROM cards WHERE id = ?').run(req.params.id)
+    await db.prepare('DELETE FROM cards WHERE id = ?').run(req.params.id)
     res.json({ message: 'Tarjeta eliminada' })
   } catch (error) {
     console.error('Delete card error:', error)
@@ -108,13 +108,14 @@ router.delete('/:id', authenticateToken, (req, res) => {
 })
 
 // Add assignee
-router.post('/:id/assignees', authenticateToken, (req, res) => {
+router.post('/:id/assignees', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.body
 
-    db.prepare(`
-      INSERT OR IGNORE INTO card_assignees (card_id, user_id)
+    await db.prepare(`
+      INSERT INTO card_assignees (card_id, user_id)
       VALUES (?, ?)
+      ON CONFLICT DO NOTHING
     `).run(req.params.id, userId)
 
     res.json({ message: 'Asignado agregado' })
@@ -125,9 +126,9 @@ router.post('/:id/assignees', authenticateToken, (req, res) => {
 })
 
 // Remove assignee
-router.delete('/:id/assignees/:userId', authenticateToken, (req, res) => {
+router.delete('/:id/assignees/:userId', authenticateToken, async (req, res) => {
   try {
-    db.prepare(`
+    await db.prepare(`
       DELETE FROM card_assignees WHERE card_id = ? AND user_id = ?
     `).run(req.params.id, req.params.userId)
 
@@ -139,17 +140,17 @@ router.delete('/:id/assignees/:userId', authenticateToken, (req, res) => {
 })
 
 // Add label
-router.post('/:id/labels', authenticateToken, (req, res) => {
+router.post('/:id/labels', authenticateToken, async (req, res) => {
   try {
     const { name, color } = req.body
     const labelId = uuidv4()
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO card_labels (id, card_id, name, color)
       VALUES (?, ?, ?, ?)
     `).run(labelId, req.params.id, name, color)
 
-    const label = db.prepare('SELECT * FROM card_labels WHERE id = ?').get(labelId)
+    const label = await db.prepare('SELECT * FROM card_labels WHERE id = ?').get(labelId)
     res.status(201).json(label)
   } catch (error) {
     console.error('Add label error:', error)
@@ -158,9 +159,9 @@ router.post('/:id/labels', authenticateToken, (req, res) => {
 })
 
 // Remove label
-router.delete('/:id/labels/:labelId', authenticateToken, (req, res) => {
+router.delete('/:id/labels/:labelId', authenticateToken, async (req, res) => {
   try {
-    db.prepare('DELETE FROM card_labels WHERE id = ?').run(req.params.labelId)
+    await db.prepare('DELETE FROM card_labels WHERE id = ?').run(req.params.labelId)
     res.json({ message: 'Etiqueta eliminada' })
   } catch (error) {
     console.error('Remove label error:', error)
@@ -169,9 +170,9 @@ router.delete('/:id/labels/:labelId', authenticateToken, (req, res) => {
 })
 
 // Get comments
-router.get('/:id/comments', authenticateToken, (req, res) => {
+router.get('/:id/comments', authenticateToken, async (req, res) => {
   try {
-    const comments = db.prepare(`
+    const comments = await db.prepare(`
       SELECT c.*, u.name as user_name
       FROM comments c
       JOIN users u ON c.user_id = u.id
@@ -192,50 +193,48 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
     const { content } = req.body
     const commentId = uuidv4()
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO comments (id, card_id, user_id, content)
       VALUES (?, ?, ?, ?)
     `).run(commentId, req.params.id, req.user.id, content)
 
     // Get card and board info for notifications
-    const card = db.prepare(`
+    const card = await db.prepare(`
       SELECT c.*, col.board_id
       FROM cards c
       JOIN columns col ON c.column_id = col.id
       WHERE c.id = ?
     `).get(req.params.id)
 
-    const board = card ? db.prepare('SELECT name FROM boards WHERE id = ?').get(card.board_id) : null
+    const board = card ? await db.prepare('SELECT name FROM boards WHERE id = ?').get(card.board_id) : null
 
     // Extract mentions and create notifications
     const mentions = content.match(/@(\w+)/g) || []
     for (const mention of mentions) {
       const userName = mention.slice(1)
-      const mentionedUser = db.prepare('SELECT id, name, teams_webhook FROM users WHERE name LIKE ?').get(`%${userName}%`)
+      const mentionedUser = await db.prepare('SELECT id, name, teams_webhook, teams_conversation_ref FROM users WHERE name LIKE ?').get(`%${userName}%`)
       if (mentionedUser) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO mentions (id, card_id, comment_id, user_id)
           VALUES (?, ?, ?, ?)
         `).run(uuidv4(), req.params.id, commentId, mentionedUser.id)
 
-        // Send Teams notification if webhook is configured
-        if (mentionedUser.teams_webhook) {
-          const appUrl = process.env.APP_URL || 'http://localhost:5173'
-          const cardUrl = `${appUrl}/board/${card?.board_id}?card=${req.params.id}`
+        // Send Teams notification
+        const appUrl = process.env.APP_URL || 'http://localhost:5173'
+        const cardUrl = `${appUrl}/board/${card?.board_id}?card=${req.params.id}`
 
-          notifyMention(
-            mentionedUser,
-            req.user.name,
-            card?.title || 'Tarjeta',
-            content,
-            board?.name || 'Tablero',
-            cardUrl
-          ).catch(err => console.error('Teams notification error:', err))
-        }
+        notifyMention(
+          mentionedUser,
+          req.user.name,
+          card?.title || 'Tarjeta',
+          content,
+          board?.name || 'Tablero',
+          cardUrl
+        ).catch(err => console.error('Teams notification error:', err))
       }
     }
 
-    const comment = db.prepare(`
+    const comment = await db.prepare(`
       SELECT c.*, u.name as user_name
       FROM comments c
       JOIN users u ON c.user_id = u.id
@@ -250,9 +249,9 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
 })
 
 // Delete comment
-router.delete('/comments/:id', authenticateToken, (req, res) => {
+router.delete('/comments/:id', authenticateToken, async (req, res) => {
   try {
-    db.prepare('DELETE FROM comments WHERE id = ?').run(req.params.id)
+    await db.prepare('DELETE FROM comments WHERE id = ?').run(req.params.id)
     res.json({ message: 'Comentario eliminado' })
   } catch (error) {
     console.error('Delete comment error:', error)

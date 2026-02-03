@@ -19,9 +19,9 @@ const getPendingLinks = async () => {
 }
 
 // Get all users (for mentions and assignees)
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const users = db.prepare(`
+    const users = await db.prepare(`
       SELECT id, email, name, department, role
       FROM users
       ORDER BY name
@@ -35,9 +35,9 @@ router.get('/', authenticateToken, (req, res) => {
 })
 
 // Get user by ID
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id, email, name, department, role
       FROM users WHERE id = ?
     `).get(req.params.id)
@@ -54,9 +54,9 @@ router.get('/:id', authenticateToken, (req, res) => {
 })
 
 // Get current user settings (including webhook and Teams link status)
-router.get('/me/settings', authenticateToken, (req, res) => {
+router.get('/me/settings', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id, email, name, department, role, teams_webhook, teams_user_id, teams_conversation_ref
       FROM users WHERE id = ?
     `).get(req.user.id)
@@ -64,7 +64,7 @@ router.get('/me/settings', authenticateToken, (req, res) => {
     // Add a flag to indicate if Teams bot is linked
     res.json({
       ...user,
-      teamsLinked: !!user.teams_conversation_ref
+      teamsLinked: !!user?.teams_conversation_ref
     })
   } catch (error) {
     console.error('Get settings error:', error)
@@ -73,11 +73,11 @@ router.get('/me/settings', authenticateToken, (req, res) => {
 })
 
 // Update Teams webhook
-router.put('/me/teams-webhook', authenticateToken, (req, res) => {
+router.put('/me/teams-webhook', authenticateToken, async (req, res) => {
   try {
     const { webhookUrl } = req.body
 
-    db.prepare('UPDATE users SET teams_webhook = ? WHERE id = ?')
+    await db.prepare('UPDATE users SET teams_webhook = ? WHERE id = ?')
       .run(webhookUrl || null, req.user.id)
 
     res.json({ message: 'Webhook de Teams actualizado' })
@@ -114,7 +114,7 @@ router.post('/me/teams-link', authenticateToken, async (req, res) => {
     }
 
     // Save the conversation reference to the user
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
       SET teams_user_id = ?, teams_conversation_ref = ?
       WHERE id = ?
@@ -134,9 +134,9 @@ router.post('/me/teams-link', authenticateToken, async (req, res) => {
 })
 
 // Unlink Teams account
-router.delete('/me/teams-link', authenticateToken, (req, res) => {
+router.delete('/me/teams-link', authenticateToken, async (req, res) => {
   try {
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
       SET teams_user_id = NULL, teams_conversation_ref = NULL
       WHERE id = ?
