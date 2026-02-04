@@ -12,11 +12,41 @@ const __dirname = dirname(__filename)
 
 const { Pool } = pg
 
-// Use DATABASE_URL from Railway or fallback to local
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : false
-})
+// Build connection string from Railway POSTGRES_* variables or use DATABASE_URL
+function getConnectionConfig() {
+  // If DATABASE_URL exists, use it directly
+  if (process.env.DATABASE_URL) {
+    return {
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL.includes('railway') ? { rejectUnauthorized: false } : false
+    }
+  }
+
+  // Otherwise, build from individual POSTGRES_* variables (Railway format)
+  if (process.env.PGHOST || process.env.POSTGRES_HOST) {
+    const host = process.env.PGHOST || process.env.POSTGRES_HOST
+    const port = process.env.PGPORT || process.env.POSTGRES_PORT || 5432
+    const database = process.env.PGDATABASE || process.env.POSTGRES_DB
+    const user = process.env.PGUSER || process.env.POSTGRES_USER
+    const password = process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD
+
+    return {
+      host,
+      port,
+      database,
+      user,
+      password,
+      ssl: { rejectUnauthorized: false }
+    }
+  }
+
+  // Fallback to local development
+  return {
+    connectionString: 'postgresql://localhost/planner'
+  }
+}
+
+const pool = new Pool(getConnectionConfig())
 
 // Initialize schema
 async function initializeDatabase() {
