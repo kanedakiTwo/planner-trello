@@ -3,7 +3,8 @@ import { CloudAdapter, ConfigurationBotFrameworkAuthentication } from 'botbuilde
 const botFrameworkAuthentication = new ConfigurationBotFrameworkAuthentication({
   MicrosoftAppId: process.env.MICROSOFT_APP_ID,
   MicrosoftAppPassword: process.env.MICROSOFT_APP_PASSWORD,
-  MicrosoftAppTenantId: process.env.MICROSOFT_APP_TENANT_ID
+  MicrosoftAppTenantId: process.env.MICROSOFT_APP_TENANT_ID,
+  MicrosoftAppType: 'SingleTenant'
 })
 
 export const adapter = new CloudAdapter(botFrameworkAuthentication)
