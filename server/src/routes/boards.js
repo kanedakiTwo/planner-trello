@@ -5,16 +5,15 @@ import { authenticateToken } from '../middleware/auth.js'
 
 const router = Router()
 
-// Get all boards for user
+// Get all boards (shared between all users)
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const boards = await db.prepare(`
-      SELECT DISTINCT b.*
+      SELECT b.*, u.name as owner_name
       FROM boards b
-      LEFT JOIN board_members bm ON b.id = bm.board_id
-      WHERE b.owner_id = ? OR bm.user_id = ?
+      JOIN users u ON b.owner_id = u.id
       ORDER BY b.created_at DESC
-    `).all(req.user.id, req.user.id)
+    `).all()
 
     res.json(boards)
   } catch (error) {
