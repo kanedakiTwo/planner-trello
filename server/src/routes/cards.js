@@ -209,10 +209,12 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
     const board = card ? await db.prepare('SELECT name FROM boards WHERE id = ?').get(card.board_id) : null
 
     // Extract mentions and create notifications
-    const mentions = content.match(/@(\w+)/g) || []
+    const mentions = content.match(/@([\w\u00C0-\u024F]+)/g) || []
+    console.log('Mentions found:', mentions)
     for (const mention of mentions) {
       const userName = mention.slice(1)
-      const mentionedUser = await db.prepare('SELECT id, name, teams_webhook, teams_conversation_ref FROM users WHERE name LIKE ?').get(`%${userName}%`)
+      const mentionedUser = await db.prepare('SELECT id, name, teams_webhook, teams_conversation_ref FROM users WHERE name LIKE ? ORDER BY teams_conversation_ref DESC NULLS LAST LIMIT 1').get(`%${userName}%`)
+      console.log('Mentioned user found:', mentionedUser?.name, 'has_ref:', !!mentionedUser?.teams_conversation_ref)
       if (mentionedUser) {
         await db.prepare(`
           INSERT INTO mentions (id, card_id, comment_id, user_id)
