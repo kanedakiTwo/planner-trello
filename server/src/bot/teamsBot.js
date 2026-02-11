@@ -322,9 +322,6 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       if (priority) confirmation += `Prioridad: ${priority}\n`
       if (dueDate) confirmation += `Fecha limite: ${dueDate}\n`
 
-      // Debug: show raw values received from Teams
-      confirmation += `\n_Debug values: ${JSON.stringify({ prioridad: value.prioridad, fecha: value.fecha, allKeys: Object.keys(value) })}_`
-
       await context.sendActivity(confirmation)
     } catch (error) {
       console.error('Error creating task from form:', error)
