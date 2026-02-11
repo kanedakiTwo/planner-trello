@@ -18,8 +18,14 @@ export class PlannerBot extends ActivityHandler {
 
     // When a user sends a message
     this.onMessage(async (context, next) => {
-      const text = context.activity.text?.toLowerCase().trim()
+      // Handle Adaptive Card form submissions (no text, just value)
+      if (context.activity.value && !context.activity.text) {
+        await this.handleCardSubmit(context)
+        await next()
+        return
+      }
 
+      const text = context.activity.text?.toLowerCase().trim()
       const rawText = context.activity.text?.trim() || ''
 
       if (text === 'conectar' || text === 'vincular' || text === 'link') {
@@ -76,12 +82,9 @@ export class PlannerBot extends ActivityHandler {
 
 - **conectar** - Vincula tu cuenta de Planner para recibir notificaciones
 - **estado** - Verifica si tu cuenta esta vinculada
-- **/tableros** - Lista todos los tableros disponibles
-- **/tarea** - Crea una tarea en un tablero
+- **tableros** - Lista todos los tableros disponibles
+- **tarea** - Abre formulario para crear una tarea
 - **ayuda** - Muestra este mensaje
-
-**Crear tarea:**
-\`/tarea tablero="Nombre" titulo="Titulo" [prioridad="alta"] [fecha="YYYY-MM-DD"]\`
 
 Una vez vinculado, recibiras notificaciones y podras crear tareas directamente desde Teams.`
 
@@ -102,6 +105,208 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
   async getLinkedUser(context) {
     const teamsUserId = context.activity.from.id
     return db.prepare('SELECT * FROM users WHERE teams_user_id = ?').get(teamsUserId)
+  }
+
+  async sendTareaForm(context) {
+    try {
+      const user = await this.getLinkedUser(context)
+      if (!user) {
+        await context.sendActivity('Necesitas vincular tu cuenta primero. Escribe **conectar** para vincularla.')
+        return
+      }
+
+      const boards = await db.prepare(`
+        SELECT b.id, b.name FROM boards b ORDER BY b.name
+      `).all()
+
+      if (boards.length === 0) {
+        await context.sendActivity('No hay tableros disponibles. Crea uno primero en la app web.')
+        return
+      }
+
+      const boardChoices = boards.map(b => ({ title: b.name, value: b.id }))
+
+      const card = CardFactory.adaptiveCard({
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [
+          {
+            "type": "TextBlock",
+            "text": "Nueva Tarea",
+            "weight": "Bolder",
+            "size": "Medium",
+            "color": "Accent"
+          },
+          {
+            "type": "TextBlock",
+            "text": "Tablero *",
+            "weight": "Bolder",
+            "spacing": "Medium",
+            "size": "Small"
+          },
+          {
+            "type": "Input.ChoiceSet",
+            "id": "tablero",
+            "placeholder": "Selecciona un tablero",
+            "isRequired": true,
+            "choices": boardChoices
+          },
+          {
+            "type": "TextBlock",
+            "text": "Titulo *",
+            "weight": "Bolder",
+            "spacing": "Medium",
+            "size": "Small"
+          },
+          {
+            "type": "Input.Text",
+            "id": "titulo",
+            "placeholder": "Titulo de la tarea",
+            "isRequired": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "Descripcion",
+            "weight": "Bolder",
+            "spacing": "Medium",
+            "size": "Small"
+          },
+          {
+            "type": "Input.Text",
+            "id": "descripcion",
+            "placeholder": "Descripcion (opcional)",
+            "isMultiline": true
+          },
+          {
+            "type": "ColumnSet",
+            "columns": [
+              {
+                "type": "Column",
+                "width": "stretch",
+                "items": [
+                  {
+                    "type": "TextBlock",
+                    "text": "Prioridad",
+                    "weight": "Bolder",
+                    "size": "Small"
+                  },
+                  {
+                    "type": "Input.ChoiceSet",
+                    "id": "prioridad",
+                    "placeholder": "Sin prioridad",
+                    "choices": [
+                      { "title": "Alta", "value": "alta" },
+                      { "title": "Media", "value": "media" },
+                      { "title": "Baja", "value": "baja" }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "width": "stretch",
+                "items": [
+                  {
+                    "type": "TextBlock",
+                    "text": "Fecha limite",
+                    "weight": "Bolder",
+                    "size": "Small"
+                  },
+                  {
+                    "type": "Input.Date",
+                    "id": "fecha"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.Submit",
+            "title": "Crear tarea",
+            "data": { "action": "crear_tarea" }
+          }
+        ]
+      })
+
+      await context.sendActivity({ attachments: [card] })
+    } catch (error) {
+      console.error('Error sending task form:', error)
+      await context.sendActivity('Ocurrio un error al cargar el formulario.')
+    }
+  }
+
+  async handleCardSubmit(context) {
+    const value = context.activity.value
+    if (!value || value.action !== 'crear_tarea') return
+
+    try {
+      const user = await this.getLinkedUser(context)
+      if (!user) {
+        await context.sendActivity('Necesitas vincular tu cuenta primero. Escribe **conectar** para vincularla.')
+        return
+      }
+
+      if (!value.tablero || !value.titulo) {
+        await context.sendActivity('El tablero y el titulo son obligatorios. Intenta de nuevo.')
+        return
+      }
+
+      // Find board
+      const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(value.tablero)
+      if (!board) {
+        await context.sendActivity('No se encontro el tablero seleccionado.')
+        return
+      }
+
+      // Get first column
+      const column = await db.prepare(`
+        SELECT * FROM columns WHERE board_id = ? ORDER BY position LIMIT 1
+      `).get(board.id)
+
+      if (!column) {
+        await context.sendActivity(`El tablero **${board.name}** no tiene columnas.`)
+        return
+      }
+
+      // Calculate position
+      const maxPos = await db.prepare(`
+        SELECT MAX(position) as max FROM cards WHERE column_id = ?
+      `).get(column.id)
+      const position = (maxPos?.max ?? -1) + 1
+
+      // Create the card
+      const cardId = uuidv4()
+      await db.prepare(`
+        INSERT INTO cards (id, column_id, title, description, priority, due_date, position, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        cardId,
+        column.id,
+        value.titulo,
+        value.descripcion || null,
+        value.prioridad || null,
+        value.fecha || null,
+        position,
+        user.id
+      )
+
+      // Confirmation
+      let confirmation = `Tarea creada exitosamente!\n\n`
+      confirmation += `**${value.titulo}**\n`
+      confirmation += `Tablero: ${board.name}\n`
+      confirmation += `Columna: ${column.name}\n`
+      if (value.descripcion) confirmation += `Descripcion: ${value.descripcion}\n`
+      if (value.prioridad) confirmation += `Prioridad: ${value.prioridad}\n`
+      if (value.fecha) confirmation += `Fecha limite: ${value.fecha}\n`
+
+      await context.sendActivity(confirmation)
+    } catch (error) {
+      console.error('Error creating task from form:', error)
+      await context.sendActivity('Ocurrio un error al crear la tarea.')
+    }
   }
 
   async handleTableros(context) {
@@ -132,7 +337,7 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
         message += `\n   Creado por: ${board.owner_name}\n\n`
       }
 
-      message += '_Usa **/tarea** para crear una tarea en cualquier tablero._'
+      message += '_Usa **tarea** para crear una tarea en cualquier tablero._'
 
       await context.sendActivity(message)
     } catch (error) {
@@ -153,22 +358,9 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       // Parse parameters from the raw text (preserving case)
       const params = parseCommandParams(rawText)
 
-      // Validate required params
+      // If no params provided, show the interactive form
       if (!params.tablero || !params.titulo) {
-        const usage = `**Uso de /tarea:**
-
-\`/tarea tablero="Nombre" titulo="Titulo de la tarea"\`
-
-**Parametros opcionales:**
-- columna="Nombre columna" (default: primera columna)
-- descripcion="Descripcion de la tarea"
-- prioridad="alta|media|baja"
-- fecha="YYYY-MM-DD"
-
-**Ejemplo:**
-\`/tarea tablero="Marketing" titulo="Revisar campaña" prioridad="alta" fecha="2025-04-01"\``
-
-        await context.sendActivity(usage)
+        await this.sendTareaForm(context)
         return
       }
 

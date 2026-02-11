@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   "manifestVersion": "1.16",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "id": "bd744475-159a-4aab-9224-6cb0fb76157b",
   "packageName": "com.planner.teamsbot",
   "developer": {
@@ -20,7 +20,7 @@
   },
   "description": {
     "short": "Notificaciones y gestion de tareas en Planner",
-    "full": "Bot de Planner para recibir notificaciones y crear tareas directamente desde Teams. Vincula tu cuenta escribiendo 'conectar', usa '/tableros' para ver tableros y '/tarea' para crear tareas."
+    "full": "Bot de Planner para recibir notificaciones y crear tareas directamente desde Teams. Vincula tu cuenta escribiendo 'conectar', usa 'tableros' para ver tableros y 'tarea' para crear tareas."
   },
   "accentColor": "#3B82F6",
   "bots": [
@@ -48,12 +48,12 @@
               "description": "Verifica el estado de tu vinculacion"
             },
             {
-              "title": "/tableros",
+              "title": "tableros",
               "description": "Lista todos los tableros disponibles"
             },
             {
-              "title": "/tarea",
-              "description": "Crea una tarea en un tablero"
+              "title": "tarea",
+              "description": "Abre formulario para crear una tarea"
             }
           ]
         }
