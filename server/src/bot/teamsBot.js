@@ -283,7 +283,9 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       `).get(column.id)
       const position = (maxPos?.max ?? -1) + 1
 
-      const priority = value.prioridad || null
+      // Map Spanish priorities to English (frontend expects low/medium/high/urgent)
+      const priorityMap = { 'alta': 'high', 'media': 'medium', 'baja': 'low' }
+      const priority = priorityMap[value.prioridad] || value.prioridad || null
       const dueDate = value.fecha || null
 
       // Create the card
@@ -427,11 +429,10 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       `).get(column.id)
       const position = (maxPos?.max ?? -1) + 1
 
-      // Validate priority
-      const validPriorities = ['alta', 'media', 'baja', 'high', 'medium', 'low']
-      const priority = params.prioridad && validPriorities.includes(params.prioridad.toLowerCase())
-        ? params.prioridad.toLowerCase()
-        : params.prioridad || null
+      // Map priority to English values (frontend expects low/medium/high/urgent)
+      const priorityMap = { 'alta': 'high', 'media': 'medium', 'baja': 'low' }
+      const rawPriority = params.prioridad?.toLowerCase()
+      const priority = priorityMap[rawPriority] || rawPriority || null
 
       // Create the card
       const cardId = uuidv4()
