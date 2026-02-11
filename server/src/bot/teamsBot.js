@@ -1,5 +1,16 @@
 import { ActivityHandler, TurnContext, CardFactory } from 'botbuilder'
+import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
+
+function parseCommandParams(text) {
+  const params = {}
+  const regex = /(\w+)="([^"]*)"/g
+  let match
+  while ((match = regex.exec(text)) !== null) {
+    params[match[1].toLowerCase()] = match[2]
+  }
+  return params
+}
 
 export class PlannerBot extends ActivityHandler {
   constructor() {
@@ -9,12 +20,18 @@ export class PlannerBot extends ActivityHandler {
     this.onMessage(async (context, next) => {
       const text = context.activity.text?.toLowerCase().trim()
 
+      const rawText = context.activity.text?.trim() || ''
+
       if (text === 'conectar' || text === 'vincular' || text === 'link') {
         await this.handleLinkRequest(context)
       } else if (text === 'ayuda' || text === 'help') {
         await this.sendHelpMessage(context)
       } else if (text === 'estado' || text === 'status') {
         await this.sendStatusMessage(context)
+      } else if (text === '/tableros' || text === 'tableros') {
+        await this.handleTableros(context)
+      } else if (text.startsWith('/tarea') || text.startsWith('tarea ')) {
+        await this.handleCrearTarea(context, rawText)
       } else {
         await context.sendActivity(
           `No entendi "${text}". Escribe **ayuda** para ver los comandos disponibles.`
@@ -59,9 +76,14 @@ export class PlannerBot extends ActivityHandler {
 
 - **conectar** - Vincula tu cuenta de Planner para recibir notificaciones
 - **estado** - Verifica si tu cuenta esta vinculada
+- **/tableros** - Lista todos los tableros disponibles
+- **/tarea** - Crea una tarea en un tablero
 - **ayuda** - Muestra este mensaje
 
-Una vez vinculado, recibiras un mensaje personal cuando alguien te mencione en un comentario.`
+**Crear tarea:**
+\`/tarea tablero="Nombre" titulo="Titulo" [prioridad="alta"] [fecha="YYYY-MM-DD"]\`
+
+Una vez vinculado, recibiras notificaciones y podras crear tareas directamente desde Teams.`
 
     await context.sendActivity(message)
   }
@@ -74,6 +96,160 @@ Una vez vinculado, recibiras un mensaje personal cuando alguien te mencione en u
       await context.sendActivity(`Tu cuenta de Teams esta vinculada a **${user.name}** (${user.email}).`)
     } else {
       await context.sendActivity('Tu cuenta de Teams no esta vinculada a ninguna cuenta de Planner. Escribe **conectar** para vincularla.')
+    }
+  }
+
+  async getLinkedUser(context) {
+    const teamsUserId = context.activity.from.id
+    return db.prepare('SELECT * FROM users WHERE teams_user_id = ?').get(teamsUserId)
+  }
+
+  async handleTableros(context) {
+    try {
+      const boards = await db.prepare(`
+        SELECT b.*, u.name as owner_name
+        FROM boards b
+        JOIN users u ON b.owner_id = u.id
+        ORDER BY b.created_at DESC
+      `).all()
+
+      if (boards.length === 0) {
+        await context.sendActivity('No hay tableros creados todavia.')
+        return
+      }
+
+      let message = '**Tableros disponibles:**\n\n'
+
+      for (const board of boards) {
+        const columns = await db.prepare(`
+          SELECT name FROM columns WHERE board_id = ? ORDER BY position
+        `).all(board.id)
+
+        const columnNames = columns.map(c => c.name).join(', ')
+        message += `**${board.name}**`
+        if (board.description) message += ` - ${board.description}`
+        message += `\n   Columnas: ${columnNames || 'Sin columnas'}`
+        message += `\n   Creado por: ${board.owner_name}\n\n`
+      }
+
+      message += '_Usa **/tarea** para crear una tarea en cualquier tablero._'
+
+      await context.sendActivity(message)
+    } catch (error) {
+      console.error('Error listing boards:', error)
+      await context.sendActivity('Ocurrio un error al obtener los tableros.')
+    }
+  }
+
+  async handleCrearTarea(context, rawText) {
+    try {
+      // Verify linked account
+      const user = await this.getLinkedUser(context)
+      if (!user) {
+        await context.sendActivity('Necesitas vincular tu cuenta primero. Escribe **conectar** para vincularla.')
+        return
+      }
+
+      // Parse parameters from the raw text (preserving case)
+      const params = parseCommandParams(rawText)
+
+      // Validate required params
+      if (!params.tablero || !params.titulo) {
+        const usage = `**Uso de /tarea:**
+
+\`/tarea tablero="Nombre" titulo="Titulo de la tarea"\`
+
+**Parametros opcionales:**
+- columna="Nombre columna" (default: primera columna)
+- descripcion="Descripcion de la tarea"
+- prioridad="alta|media|baja"
+- fecha="YYYY-MM-DD"
+
+**Ejemplo:**
+\`/tarea tablero="Marketing" titulo="Revisar campaña" prioridad="alta" fecha="2025-04-01"\``
+
+        await context.sendActivity(usage)
+        return
+      }
+
+      // Find board by name (case-insensitive, partial match)
+      const board = await db.prepare(`
+        SELECT * FROM boards WHERE LOWER(name) LIKE ?
+      `).get(`%${params.tablero.toLowerCase()}%`)
+
+      if (!board) {
+        await context.sendActivity(`No encontre un tablero con el nombre "${params.tablero}". Escribe **/tableros** para ver los disponibles.`)
+        return
+      }
+
+      // Find column
+      let column
+      if (params.columna) {
+        column = await db.prepare(`
+          SELECT * FROM columns WHERE board_id = ? AND LOWER(name) LIKE ? ORDER BY position LIMIT 1
+        `).get(board.id, `%${params.columna.toLowerCase()}%`)
+
+        if (!column) {
+          const columns = await db.prepare(`
+            SELECT name FROM columns WHERE board_id = ? ORDER BY position
+          `).all(board.id)
+          const names = columns.map(c => `"${c.name}"`).join(', ')
+          await context.sendActivity(`No encontre la columna "${params.columna}" en el tablero **${board.name}**.\nColumnas disponibles: ${names}`)
+          return
+        }
+      } else {
+        // Default to first column
+        column = await db.prepare(`
+          SELECT * FROM columns WHERE board_id = ? ORDER BY position LIMIT 1
+        `).get(board.id)
+
+        if (!column) {
+          await context.sendActivity(`El tablero **${board.name}** no tiene columnas.`)
+          return
+        }
+      }
+
+      // Calculate position
+      const maxPos = await db.prepare(`
+        SELECT MAX(position) as max FROM cards WHERE column_id = ?
+      `).get(column.id)
+      const position = (maxPos?.max ?? -1) + 1
+
+      // Validate priority
+      const validPriorities = ['alta', 'media', 'baja', 'high', 'medium', 'low']
+      const priority = params.prioridad && validPriorities.includes(params.prioridad.toLowerCase())
+        ? params.prioridad.toLowerCase()
+        : params.prioridad || null
+
+      // Create the card
+      const cardId = uuidv4()
+      await db.prepare(`
+        INSERT INTO cards (id, column_id, title, description, priority, due_date, position, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        cardId,
+        column.id,
+        params.titulo,
+        params.descripcion || null,
+        priority,
+        params.fecha || null,
+        position,
+        user.id
+      )
+
+      // Build confirmation message
+      let confirmation = `Tarea creada exitosamente!\n\n`
+      confirmation += `**${params.titulo}**\n`
+      confirmation += `Tablero: ${board.name}\n`
+      confirmation += `Columna: ${column.name}\n`
+      if (params.descripcion) confirmation += `Descripcion: ${params.descripcion}\n`
+      if (priority) confirmation += `Prioridad: ${priority}\n`
+      if (params.fecha) confirmation += `Fecha limite: ${params.fecha}\n`
+
+      await context.sendActivity(confirmation)
+    } catch (error) {
+      console.error('Error creating task:', error)
+      await context.sendActivity('Ocurrio un error al crear la tarea. Verifica los parametros e intenta de nuevo.')
     }
   }
 

@@ -2,13 +2,13 @@
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   "manifestVersion": "1.16",
   "version": "1.0.0",
-  "id": "{{MICROSOFT_APP_ID}}",
+  "id": "bd744475-159a-4aab-9224-6cb0fb76157b",
   "packageName": "com.planner.teamsbot",
   "developer": {
     "name": "Planner App",
-    "websiteUrl": "https://{{APP_DOMAIN}}",
-    "privacyUrl": "https://{{APP_DOMAIN}}/privacy",
-    "termsOfUseUrl": "https://{{APP_DOMAIN}}/terms"
+    "websiteUrl": "https://planner-trello-production.up.railway.app",
+    "privacyUrl": "https://planner-trello-production.up.railway.app/privacy",
+    "termsOfUseUrl": "https://planner-trello-production.up.railway.app/terms"
   },
   "icons": {
     "color": "color.png",
@@ -19,13 +19,13 @@
     "full": "Planner - Gestion de Tareas"
   },
   "description": {
-    "short": "Recibe notificaciones de menciones en Planner",
-    "full": "Bot de Planner para recibir notificaciones personales cuando te mencionan en tarjetas o comentarios. Vincula tu cuenta escribiendo 'conectar' al bot."
+    "short": "Notificaciones y gestion de tareas en Planner",
+    "full": "Bot de Planner para recibir notificaciones y crear tareas directamente desde Teams. Vincula tu cuenta escribiendo 'conectar', usa '/tableros' para ver tableros y '/tarea' para crear tareas."
   },
   "accentColor": "#3B82F6",
   "bots": [
     {
-      "botId": "{{MICROSOFT_APP_ID}}",
+      "botId": "bd744475-159a-4aab-9224-6cb0fb76157b",
       "scopes": [
         "personal"
       ],
@@ -46,6 +46,14 @@
             {
               "title": "estado",
               "description": "Verifica el estado de tu vinculacion"
+            },
+            {
+              "title": "/tableros",
+              "description": "Lista todos los tableros disponibles"
+            },
+            {
+              "title": "/tarea",
+              "description": "Crea una tarea en un tablero"
             }
           ]
         }
@@ -57,6 +65,6 @@
     "messageTeamMembers"
   ],
   "validDomains": [
-    "{{APP_DOMAIN}}"
+    "planner-trello-production.up.railway.app"
   ]
 }
