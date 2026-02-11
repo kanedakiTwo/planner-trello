@@ -126,6 +126,12 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
 
       const boardChoices = boards.map(b => ({ title: b.name, value: b.id }))
 
+      // Get all users for assignee dropdown
+      const users = await db.prepare(`
+        SELECT id, name FROM users ORDER BY name
+      `).all()
+      const userChoices = users.map(u => ({ title: u.name, value: u.id }))
+
       const card = CardFactory.adaptiveCard({
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "type": "AdaptiveCard",
@@ -177,6 +183,19 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
             "id": "descripcion",
             "placeholder": "Descripcion (opcional)",
             "isMultiline": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "Asignar a",
+            "weight": "Bolder",
+            "spacing": "Medium",
+            "size": "Small"
+          },
+          {
+            "type": "Input.ChoiceSet",
+            "id": "asignado",
+            "placeholder": "Sin asignar",
+            "choices": userChoices
           },
           {
             "type": "ColumnSet",
@@ -243,6 +262,8 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
     if (!value || value.action !== 'crear_tarea') return
 
     try {
+      console.log('Card submit received:', JSON.stringify(value))
+
       const user = await this.getLinkedUser(context)
       if (!user) {
         await context.sendActivity('Necesitas vincular tu cuenta primero. Escribe **conectar** para vincularla.')
@@ -277,6 +298,9 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       `).get(column.id)
       const position = (maxPos?.max ?? -1) + 1
 
+      const priority = value.prioridad || null
+      const dueDate = value.fecha || null
+
       // Create the card
       const cardId = uuidv4()
       await db.prepare(`
@@ -287,11 +311,18 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
         column.id,
         value.titulo,
         value.descripcion || null,
-        value.prioridad || null,
-        value.fecha || null,
+        priority,
+        dueDate,
         position,
         user.id
       )
+
+      // Assign user if selected
+      if (value.asignado) {
+        await db.prepare(`
+          INSERT INTO card_assignees (card_id, user_id) VALUES (?, ?)
+        `).run(cardId, value.asignado)
+      }
 
       // Confirmation
       let confirmation = `Tarea creada exitosamente!\n\n`
@@ -299,8 +330,12 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       confirmation += `Tablero: ${board.name}\n`
       confirmation += `Columna: ${column.name}\n`
       if (value.descripcion) confirmation += `Descripcion: ${value.descripcion}\n`
-      if (value.prioridad) confirmation += `Prioridad: ${value.prioridad}\n`
-      if (value.fecha) confirmation += `Fecha limite: ${value.fecha}\n`
+      if (value.asignado) {
+        const assignee = await db.prepare('SELECT name FROM users WHERE id = ?').get(value.asignado)
+        if (assignee) confirmation += `Asignado a: ${assignee.name}\n`
+      }
+      if (priority) confirmation += `Prioridad: ${priority}\n`
+      if (dueDate) confirmation += `Fecha limite: ${dueDate}\n`
 
       await context.sendActivity(confirmation)
     } catch (error) {
