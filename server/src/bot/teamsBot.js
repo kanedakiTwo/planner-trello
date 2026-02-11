@@ -198,47 +198,32 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
             "choices": userChoices
           },
           {
-            "type": "ColumnSet",
-            "columns": [
-              {
-                "type": "Column",
-                "width": "stretch",
-                "items": [
-                  {
-                    "type": "TextBlock",
-                    "text": "Prioridad",
-                    "weight": "Bolder",
-                    "size": "Small"
-                  },
-                  {
-                    "type": "Input.ChoiceSet",
-                    "id": "prioridad",
-                    "placeholder": "Sin prioridad",
-                    "choices": [
-                      { "title": "Alta", "value": "alta" },
-                      { "title": "Media", "value": "media" },
-                      { "title": "Baja", "value": "baja" }
-                    ]
-                  }
-                ]
-              },
-              {
-                "type": "Column",
-                "width": "stretch",
-                "items": [
-                  {
-                    "type": "TextBlock",
-                    "text": "Fecha limite",
-                    "weight": "Bolder",
-                    "size": "Small"
-                  },
-                  {
-                    "type": "Input.Date",
-                    "id": "fecha"
-                  }
-                ]
-              }
+            "type": "TextBlock",
+            "text": "Prioridad",
+            "weight": "Bolder",
+            "spacing": "Medium",
+            "size": "Small"
+          },
+          {
+            "type": "Input.ChoiceSet",
+            "id": "prioridad",
+            "placeholder": "Sin prioridad",
+            "choices": [
+              { "title": "Alta", "value": "alta" },
+              { "title": "Media", "value": "media" },
+              { "title": "Baja", "value": "baja" }
             ]
+          },
+          {
+            "type": "TextBlock",
+            "text": "Fecha limite",
+            "weight": "Bolder",
+            "spacing": "Medium",
+            "size": "Small"
+          },
+          {
+            "type": "Input.Date",
+            "id": "fecha"
           }
         ],
         "actions": [
