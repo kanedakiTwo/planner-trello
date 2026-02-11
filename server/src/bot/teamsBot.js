@@ -28,9 +28,9 @@ export class PlannerBot extends ActivityHandler {
         await this.sendHelpMessage(context)
       } else if (text === 'estado' || text === 'status') {
         await this.sendStatusMessage(context)
-      } else if (text === '/tableros' || text === 'tableros') {
+      } else if (text === '/tableros' || text === 'tableros' || text === '/tablero' || text === 'tablero') {
         await this.handleTableros(context)
-      } else if (text.startsWith('/tarea') || text.startsWith('tarea ')) {
+      } else if (text.startsWith('/tarea') || text.startsWith('tarea')) {
         await this.handleCrearTarea(context, rawText)
       } else {
         await context.sendActivity(
