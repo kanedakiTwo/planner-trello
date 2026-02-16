@@ -1,26 +1,32 @@
-import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { DndContext, DragOverlay, pointerWithin, useSensor, useSensors, PointerSensor } from '@dnd-kit/core'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { DndContext, DragOverlay, closestCorners, useSensor, useSensors, PointerSensor } from '@dnd-kit/core'
+import { arrayMove } from '@dnd-kit/sortable'
 import { useBoard } from '../context/BoardContext'
 import { useAuth } from '../context/AuthContext'
+import { getBoardColor } from '../utils/boardColors'
 import Column from '../components/Column/Column'
 import Card from '../components/Card/Card'
 import CardModal from '../components/Card/CardModal'
 
 export default function BoardView() {
   const { boardId } = useParams()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user, logout } = useAuth()
-  const { currentBoard, columns, fetchBoard, createColumn, moveCard, loading, setColumns } = useBoard()
+  const { currentBoard, columns, fetchBoard, createColumn, moveCard, updateBoard, deleteBoard, loading, setColumns } = useBoard()
   const [activeCard, setActiveCard] = useState(null)
   const [showColumnForm, setShowColumnForm] = useState(false)
   const [newColumnName, setNewColumnName] = useState('')
   const [selectedCard, setSelectedCard] = useState(null)
+  const [editingBoardName, setEditingBoardName] = useState(false)
+  const [boardName, setBoardName] = useState('')
+  const dragSourceRef = useRef(null)
 
-  // Configurar sensor con distancia minima para activar drag
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // Requiere mover 8px antes de activar drag
+        distance: 8,
       },
     })
   )
@@ -29,12 +35,76 @@ export default function BoardView() {
     fetchBoard(boardId)
   }, [boardId, fetchBoard])
 
+  useEffect(() => {
+    if (currentBoard) setBoardName(currentBoard.name)
+  }, [currentBoard])
+
+  // Deep link: open card from ?card= query param
+  useEffect(() => {
+    const cardId = searchParams.get('card')
+    if (cardId && columns.length > 0) {
+      const card = columns.flatMap(col => col.cards || []).find(c => c.id === cardId)
+      if (card) setSelectedCard(card)
+    }
+  }, [searchParams, columns])
+
+  // Find which column contains a card
+  const findColumnByCardId = useCallback((cardId) => {
+    return columns.find(col => (col.cards || []).some(c => c.id === cardId))
+  }, [columns])
+
   const handleDragStart = (event) => {
     const { active } = event
     const card = columns
       .flatMap(col => col.cards || [])
       .find(c => c.id === active.id)
     setActiveCard(card)
+    // Remember original position for the API call
+    dragSourceRef.current = card ? { columnId: card.column_id } : null
+  }
+
+  const handleDragOver = (event) => {
+    const { active, over } = event
+    if (!over || !active) return
+
+    const activeId = active.id
+    const overId = over.id
+
+    // Find which columns the active and over items belong to
+    const activeColumn = findColumnByCardId(activeId)
+    if (!activeColumn) return
+
+    // Check if we're over a column directly or a card
+    const overColumn = columns.find(col => col.id === overId) || findColumnByCardId(overId)
+    if (!overColumn) return
+
+    // Only handle cross-column moves here
+    if (activeColumn.id === overColumn.id) return
+
+    setColumns(prev => {
+      const activeCards = [...(prev.find(c => c.id === activeColumn.id)?.cards || [])]
+      const overCards = [...(prev.find(c => c.id === overColumn.id)?.cards || [])]
+
+      const activeIndex = activeCards.findIndex(c => c.id === activeId)
+      if (activeIndex === -1) return prev
+
+      const [movedCard] = activeCards.splice(activeIndex, 1)
+      const updatedCard = { ...movedCard, column_id: overColumn.id }
+
+      // Find insertion index
+      const overCardIndex = overCards.findIndex(c => c.id === overId)
+      if (overCardIndex >= 0) {
+        overCards.splice(overCardIndex, 0, updatedCard)
+      } else {
+        overCards.push(updatedCard)
+      }
+
+      return prev.map(col => {
+        if (col.id === activeColumn.id) return { ...col, cards: activeCards }
+        if (col.id === overColumn.id) return { ...col, cards: overCards }
+        return col
+      })
+    })
   }
 
   const handleDragEnd = async (event) => {
@@ -43,93 +113,119 @@ export default function BoardView() {
 
     if (!over) return
 
-    const activeCard = columns
-      .flatMap(col => col.cards || [])
-      .find(c => c.id === active.id)
+    const activeId = active.id
+    const overId = over.id
+    const sourceColumnId = dragSourceRef.current?.columnId
 
-    if (!activeCard) return
+    // Find where the card is NOW (after handleDragOver moved it in state)
+    const currentColumn = findColumnByCardId(activeId)
+    if (!currentColumn) return
 
-    let targetColumnId = over.id
-    let targetPosition = 0
+    const overIsColumn = columns.some(col => col.id === overId)
 
-    // Check if dropping on a column
-    const targetColumn = columns.find(col => col.id === over.id)
-    if (targetColumn) {
-      targetPosition = (targetColumn.cards || []).length
+    // Detect cross-column using the ORIGINAL column saved at drag start
+    const isCrossColumn = sourceColumnId && sourceColumnId !== currentColumn.id
+
+    if (isCrossColumn) {
+      // Cross-column — state already updated by handleDragOver, just call API
+      const position = (currentColumn.cards || []).findIndex(c => c.id === activeId)
+      moveCard(activeId, currentColumn.id, position >= 0 ? position : 0).catch(console.error)
     } else {
-      // Dropping on a card
-      const overCard = columns
-        .flatMap(col => col.cards || [])
-        .find(c => c.id === over.id)
+      // Same column reordering
+      const cards = currentColumn.cards || []
+      const oldIndex = cards.findIndex(c => c.id === activeId)
+      const newIndex = overIsColumn ? cards.length - 1 : cards.findIndex(c => c.id === overId)
 
-      if (overCard) {
-        targetColumnId = overCard.column_id
-        const targetCol = columns.find(col => col.id === targetColumnId)
-        targetPosition = (targetCol?.cards || []).findIndex(c => c.id === over.id)
-      }
-    }
-
-    if (activeCard.column_id === targetColumnId) {
-      // Reorder within same column
-      const column = columns.find(col => col.id === targetColumnId)
-      const cards = [...(column?.cards || [])]
-      const oldIndex = cards.findIndex(c => c.id === active.id)
-      const newIndex = targetPosition
-
-      if (oldIndex !== newIndex) {
-        cards.splice(oldIndex, 1)
-        cards.splice(newIndex > oldIndex ? newIndex - 1 : newIndex, 0, activeCard)
-
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        const reordered = arrayMove(cards, oldIndex, newIndex)
         setColumns(prev => prev.map(col =>
-          col.id === targetColumnId ? { ...col, cards } : col
+          col.id === currentColumn.id ? { ...col, cards: reordered } : col
         ))
-
-        await moveCard(active.id, targetColumnId, newIndex)
+        moveCard(activeId, currentColumn.id, newIndex).catch(console.error)
       }
-    } else {
-      // Move to different column
-      await moveCard(active.id, targetColumnId, targetPosition)
     }
+
+    dragSourceRef.current = null
   }
 
   const handleAddColumn = async (e) => {
     e.preventDefault()
     if (!newColumnName.trim()) return
-
     await createColumn(boardId, { name: newColumnName })
     setNewColumnName('')
     setShowColumnForm(false)
   }
 
+  const handleBoardNameSave = async () => {
+    if (boardName.trim() && boardName !== currentBoard?.name) {
+      await updateBoard(boardId, { name: boardName.trim(), description: currentBoard?.description })
+    }
+    setEditingBoardName(false)
+  }
+
+  const handleDeleteBoard = async () => {
+    if (!confirm('Eliminar este tablero y todas sus tarjetas?')) return
+    await deleteBoard(boardId)
+    navigate('/')
+  }
+
   if (loading && !currentBoard) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-[#F8F8F8]">
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-aikit-400 border-t-transparent"></div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex flex-col">
+    <div className={`min-h-screen ${getBoardColor(boardId).gradient} flex flex-col`}>
       {/* Header */}
-      <header className="bg-black/20 backdrop-blur">
-        <div className="px-4 py-3 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <Link to="/" className="text-white hover:text-white/80">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <header className="bg-black/15 backdrop-blur-md border-b border-white/10">
+        <div className="px-5 py-3 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <Link to="/" className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
             </Link>
-            <h1 className="text-xl font-bold text-white">{currentBoard?.name}</h1>
+            {editingBoardName ? (
+              <input
+                type="text"
+                value={boardName}
+                onChange={(e) => setBoardName(e.target.value)}
+                onBlur={handleBoardNameSave}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleBoardNameSave()
+                  if (e.key === 'Escape') { setBoardName(currentBoard?.name || ''); setEditingBoardName(false) }
+                }}
+                className="text-lg font-bold bg-white/15 text-white rounded-lg px-3 py-1 outline-none focus:ring-2 focus:ring-white/30 font-sans"
+                autoFocus
+              />
+            ) : (
+              <h1
+                className="text-lg font-bold text-white cursor-pointer hover:bg-white/10 rounded-lg px-3 py-1 transition-colors font-sans"
+                onClick={() => setEditingBoardName(true)}
+                title="Click para editar nombre"
+              >
+                {currentBoard?.name}
+              </h1>
+            )}
+            <button
+              onClick={handleDeleteBoard}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:text-red-300 hover:bg-white/10 transition-colors"
+              title="Eliminar tablero"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right text-white">
-              <p className="font-medium">{user?.name}</p>
-            </div>
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-white font-bold text-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-white/80 font-medium hidden sm:block">{user?.name}</span>
+            <div className="w-8 h-8 bg-white/15 rounded-xl flex items-center justify-center text-white font-bold text-sm">
               {user?.name?.charAt(0).toUpperCase()}
             </div>
-            <button onClick={logout} className="text-white/80 hover:text-white text-sm">
+            <button onClick={logout} className="text-xs text-white/60 hover:text-white transition-colors">
               Salir
             </button>
           </div>
@@ -140,8 +236,9 @@ export default function BoardView() {
       <div className="flex-1 overflow-x-auto p-4">
         <DndContext
           sensors={sensors}
-          collisionDetection={pointerWithin}
+          collisionDetection={closestCorners}
           onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
           <div className="flex gap-4 items-start h-full">
@@ -149,44 +246,48 @@ export default function BoardView() {
               <Column
                 key={column.id}
                 column={column}
-                onCardClick={setSelectedCard}
+                onCardClick={(card) => {
+                  setSelectedCard(card)
+                  setSearchParams({ card: card.id }, { replace: true })
+                }}
               />
             ))}
 
             {/* Add column button */}
             <div className="flex-shrink-0 w-72">
               {showColumnForm ? (
-                <form onSubmit={handleAddColumn} className="bg-gray-100 rounded-lg p-3">
+                <form onSubmit={handleAddColumn} className="bg-white/15 backdrop-blur-sm rounded-xl p-3">
                   <input
                     type="text"
                     value={newColumnName}
                     onChange={(e) => setNewColumnName(e.target.value)}
-                    placeholder="Nombre de la columna"
-                    className="w-full px-3 py-2 rounded border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-2"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowColumnForm(false)
+                        setNewColumnName('')
+                      }
+                    }}
+                    placeholder="Nombre de la columna (Enter para crear)"
+                    className="w-full px-3 py-2 rounded-lg bg-white/90 border-0 focus:ring-2 focus:ring-white/50 outline-none text-sm text-gray-800 placeholder-gray-400 mb-2"
                     autoFocus
                   />
                   <div className="flex gap-2">
-                    <button
-                      type="submit"
-                      className="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
-                    >
+                    <button type="submit" className="bg-white text-aikit-600 px-3 py-1.5 rounded-lg hover:bg-white/90 text-sm font-medium transition-colors">
                       Crear
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowColumnForm(false)}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      Cancelar
+                    <button type="button" onClick={() => setShowColumnForm(false)} className="text-white/70 hover:text-white transition-colors">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
                     </button>
                   </div>
                 </form>
               ) : (
                 <button
                   onClick={() => setShowColumnForm(true)}
-                  className="w-full bg-white/20 hover:bg-white/30 text-white rounded-lg p-3 text-left flex items-center gap-2 transition-colors"
+                  className="w-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white rounded-xl p-3 text-left flex items-center gap-2 transition-colors text-sm"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
                   Anadir columna
@@ -195,7 +296,7 @@ export default function BoardView() {
             </div>
           </div>
 
-          <DragOverlay>
+          <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
             {activeCard && <Card card={activeCard} isDragging />}
           </DragOverlay>
         </DndContext>
@@ -205,7 +306,13 @@ export default function BoardView() {
       {selectedCard && (
         <CardModal
           card={selectedCard}
-          onClose={() => setSelectedCard(null)}
+          onClose={() => {
+            setSelectedCard(null)
+            if (searchParams.has('card')) {
+              searchParams.delete('card')
+              setSearchParams(searchParams, { replace: true })
+            }
+          }}
         />
       )}
     </div>

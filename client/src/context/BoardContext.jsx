@@ -66,29 +66,6 @@ export function BoardProvider({ children }) {
 
   const moveCard = async (cardId, targetColumnId, position) => {
     await cardService.moveCard(cardId, targetColumnId, position)
-
-    let movedCard = null
-    setColumns(prev => {
-      const newColumns = prev.map(col => ({
-        ...col,
-        cards: (col.cards || []).filter(card => {
-          if (card.id === cardId) {
-            movedCard = card
-            return false
-          }
-          return true
-        })
-      }))
-
-      return newColumns.map(col => {
-        if (col.id === targetColumnId && movedCard) {
-          const cards = [...(col.cards || [])]
-          cards.splice(position, 0, { ...movedCard, column_id: targetColumnId })
-          return { ...col, cards }
-        }
-        return col
-      })
-    })
   }
 
   const deleteCard = async (cardId) => {
@@ -97,6 +74,31 @@ export function BoardProvider({ children }) {
       ...col,
       cards: (col.cards || []).filter(card => card.id !== cardId)
     })))
+  }
+
+  const updateBoard = async (boardId, boardData) => {
+    const updated = await boardService.updateBoard(boardId, boardData)
+    setCurrentBoard(prev => ({ ...prev, ...updated }))
+    setBoards(prev => prev.map(b => b.id === boardId ? { ...b, ...updated } : b))
+    return updated
+  }
+
+  const deleteBoard = async (boardId) => {
+    await boardService.deleteBoard(boardId)
+    setBoards(prev => prev.filter(b => b.id !== boardId))
+  }
+
+  const updateColumn = async (columnId, columnData) => {
+    const updated = await boardService.updateColumn(columnId, columnData)
+    setColumns(prev => prev.map(col =>
+      col.id === columnId ? { ...col, ...updated } : col
+    ))
+    return updated
+  }
+
+  const deleteColumn = async (columnId) => {
+    await boardService.deleteColumn(columnId)
+    setColumns(prev => prev.filter(col => col.id !== columnId))
   }
 
   return (
@@ -108,7 +110,11 @@ export function BoardProvider({ children }) {
       fetchBoards,
       fetchBoard,
       createBoard,
+      updateBoard,
+      deleteBoard,
       createColumn,
+      updateColumn,
+      deleteColumn,
       createCard,
       updateCard,
       moveCard,

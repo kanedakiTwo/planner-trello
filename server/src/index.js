@@ -12,6 +12,7 @@ import boardsRoutes from './routes/boards.js'
 import columnsRoutes from './routes/columns.js'
 import cardsRoutes from './routes/cards.js'
 import attachmentsRoutes from './routes/attachments.js'
+import adminRoutes from './routes/admin.js'
 
 // Bot imports (conditional to avoid errors if not configured)
 let adapter, bot, pendingLinks
@@ -40,6 +41,7 @@ app.use('/api/boards', boardsRoutes)
 app.use('/api/columns', columnsRoutes)
 app.use('/api/cards', cardsRoutes)
 app.use('/api', attachmentsRoutes)
+app.use('/api/admin', adminRoutes)
 
 // Bot endpoint - receives messages from Teams
 if (adapter && bot) {
@@ -47,6 +49,18 @@ if (adapter && bot) {
     await adapter.process(req, res, (context) => bot.run(context))
   })
 }
+
+// Public: list departments (needed for register page, no auth)
+app.get('/api/departments', async (req, res) => {
+  try {
+    const db = (await import('./database/db.js')).default
+    const departments = await db.prepare('SELECT id, name FROM departments ORDER BY position, name').all()
+    res.json(departments)
+  } catch (error) {
+    console.error('Get departments error:', error)
+    res.status(500).json({ message: 'Error al obtener departamentos' })
+  }
+})
 
 // Health check
 app.get('/api/health', async (req, res) => {

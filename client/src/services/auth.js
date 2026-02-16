@@ -23,3 +23,33 @@ export const linkTeamsAccount = (code) =>
 
 export const unlinkTeamsAccount = () =>
   api.delete('/users/me/teams-link')
+
+// Admin endpoints
+export const getAdminUsers = () =>
+  api.get('/admin/users')
+
+export const createAdminUser = (userData) =>
+  api.post('/admin/users', userData)
+
+export const deleteAdminUser = (userId) =>
+  api.delete(`/admin/users/${userId}`)
+
+export const updateUserRole = (userId, role) =>
+  api.patch(`/admin/users/${userId}/role`, { role })
+
+export const toggleUserActive = (userId, active) =>
+  api.patch(`/admin/users/${userId}/active`, { active })
+
+// Departments (public)
+export const getDepartments = () =>
+  api.get('/departments')
+
+// Departments (admin)
+export const createDepartment = (name) =>
+  api.post('/admin/departments', { name })
+
+export const updateDepartment = (id, name) =>
+  api.patch(`/admin/departments/${id}`, { name })
+
+export const deleteDepartment = (id) =>
+  api.delete(`/admin/departments/${id}`)

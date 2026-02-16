@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     avatar TEXT,
     department TEXT,
     role TEXT DEFAULT 'member',
+    active BOOLEAN DEFAULT TRUE,
     teams_webhook TEXT,
     teams_user_id TEXT,
     teams_conversation_ref TEXT,
@@ -96,6 +97,14 @@ CREATE TABLE IF NOT EXISTS attachments (
     file_type TEXT,
     file_size INTEGER,
     uploaded_by TEXT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Departments table
+CREATE TABLE IF NOT EXISTS departments (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    position INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

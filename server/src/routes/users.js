@@ -24,6 +24,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const users = await db.prepare(`
       SELECT id, email, name, department, role
       FROM users
+      WHERE active IS NOT FALSE
       ORDER BY name
     `).all()
 

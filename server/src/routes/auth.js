@@ -24,20 +24,20 @@ router.post('/register', async (req, res) => {
     // Create user
     const userId = uuidv4()
     await db.prepare(`
-      INSERT INTO users (id, email, password_hash, name, department)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO users (id, email, password_hash, name, department, role)
+      VALUES (?, ?, ?, ?, ?, 'user')
     `).run(userId, email, passwordHash, name, department)
 
     // Generate token
     const token = jwt.sign(
-      { id: userId, email, name, department },
+      { id: userId, email, name, department, role: 'user' },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     )
 
     res.status(201).json({
       token,
-      user: { id: userId, email, name, department }
+      user: { id: userId, email, name, department, role: 'user' }
     })
   } catch (error) {
     console.error('Register error:', error)
@@ -62,9 +62,14 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Credenciales invalidas' })
     }
 
+    // Check if user is active
+    if (user.active === false) {
+      return res.status(403).json({ message: 'Tu cuenta ha sido desactivada. Contacta al administrador.' })
+    }
+
     // Generate token
     const token = jwt.sign(
-      { id: user.id, email: user.email, name: user.name, department: user.department },
+      { id: user.id, email: user.email, name: user.name, department: user.department, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     )

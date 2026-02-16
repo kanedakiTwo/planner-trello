@@ -4,6 +4,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import BoardView from './pages/BoardView'
+import Admin from './pages/Admin'
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
@@ -17,6 +18,22 @@ function PrivateRoute({ children }) {
   }
 
   return user ? children : <Navigate to="/login" />
+}
+
+function AdminRoute({ children }) {
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
+  if (!user) return <Navigate to="/login" />
+  if (user.role !== 'admin') return <Navigate to="/" />
+  return children
 }
 
 function App() {
@@ -34,6 +51,11 @@ function App() {
           <PrivateRoute>
             <BoardView />
           </PrivateRoute>
+        } />
+        <Route path="/admin" element={
+          <AdminRoute>
+            <Admin />
+          </AdminRoute>
         } />
       </Routes>
     </div>

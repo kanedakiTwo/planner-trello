@@ -41,8 +41,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const columnsWithCards = await Promise.all(columns.map(async column => {
       const cards = await db.prepare(`
         SELECT c.*,
-          (SELECT COUNT(*) FROM comments WHERE card_id = c.id) as comments_count
+          (SELECT COUNT(*) FROM comments WHERE card_id = c.id) as comments_count,
+          u.name as created_by_name
         FROM cards c
+        LEFT JOIN users u ON c.created_by = u.id
         WHERE c.column_id = ?
         ORDER BY c.position
       `).all(column.id)

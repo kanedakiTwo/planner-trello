@@ -12,6 +12,21 @@ function parseCommandParams(text) {
   return params
 }
 
+// Normalize date to YYYY-MM-DD format for PostgreSQL
+function normalizeDate(dateStr) {
+  if (!dateStr) return null
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return null
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  } catch {
+    return null
+  }
+}
+
 export class PlannerBot extends ActivityHandler {
   constructor() {
     super()
@@ -126,9 +141,9 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
 
       const boardChoices = boards.map(b => ({ title: b.name, value: b.id }))
 
-      // Get all users for assignee dropdown
+      // Get all active users for assignee dropdown
       const users = await db.prepare(`
-        SELECT id, name FROM users ORDER BY name
+        SELECT id, name FROM users WHERE active IS NOT FALSE ORDER BY name
       `).all()
       const userChoices = users.map(u => ({ title: u.name, value: u.id }))
 
@@ -286,7 +301,8 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       // Map Spanish priorities to English (frontend expects low/medium/high/urgent)
       const priorityMap = { 'alta': 'high', 'media': 'medium', 'baja': 'low' }
       const priority = priorityMap[value.prioridad] || value.prioridad || null
-      const dueDate = value.fecha || null
+      const dueDate = normalizeDate(value.fecha)
+      console.log('Teams card submit - raw fecha:', value.fecha, '-> normalized:', dueDate)
 
       // Create the card
       const cardId = uuidv4()
@@ -434,6 +450,10 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       const rawPriority = params.prioridad?.toLowerCase()
       const priority = priorityMap[rawPriority] || rawPriority || null
 
+      // Normalize date
+      const dueDate = normalizeDate(params.fecha)
+      console.log('Teams command - raw fecha:', params.fecha, '-> normalized:', dueDate)
+
       // Create the card
       const cardId = uuidv4()
       await db.prepare(`
@@ -445,7 +465,7 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
         params.titulo,
         params.descripcion || null,
         priority,
-        params.fecha || null,
+        dueDate,
         position,
         user.id
       )

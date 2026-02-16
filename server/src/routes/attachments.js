@@ -25,17 +25,27 @@ router.get('/cards/:cardId/attachments', authenticateToken, async (req, res) => 
 })
 
 // Upload attachment
-router.post('/cards/:cardId/attachments', authenticateToken, upload.single('file'), async (req, res) => {
+router.post('/cards/:cardId/attachments', authenticateToken, (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      console.error('Multer/Cloudinary upload error:', err.message, err.stack)
+      return res.status(500).json({ message: `Error al subir archivo: ${err.message}` })
+    }
+    next()
+  })
+}, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No se ha proporcionado archivo' })
     }
 
+    console.log('File uploaded to Cloudinary:', JSON.stringify(req.file, null, 2))
+
     const attachmentId = uuidv4()
     const { originalname } = req.file
-    const { path: url, filename: public_id } = req.file
+    const url = req.file.path || req.file.secure_url || req.file.url
+    const public_id = req.file.filename || req.file.public_id
 
-    // Get file info
     const fileType = req.file.mimetype
     const fileSize = req.file.size
 
@@ -53,8 +63,8 @@ router.post('/cards/:cardId/attachments', authenticateToken, upload.single('file
 
     res.status(201).json(attachment)
   } catch (error) {
-    console.error('Upload attachment error:', error)
-    res.status(500).json({ message: 'Error al subir adjunto' })
+    console.error('Upload attachment DB error:', error)
+    res.status(500).json({ message: 'Error al guardar adjunto' })
   }
 })
 

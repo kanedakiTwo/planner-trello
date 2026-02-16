@@ -144,6 +144,32 @@ export async function sendProactiveMessage(conversationRefJson, message) {
 
 // ============ UNIFIED NOTIFICATION FUNCTION ============
 
+export async function notifyColumnChange(creatorUser, moverName, cardTitle, fromColumn, toColumn, boardName, cardUrl) {
+  const message = {
+    title: `Tarjeta movida`,
+    subtitle: `"${cardTitle}" fue movida de columna`,
+    text: `**${moverName}** movió la tarjeta a **${toColumn}**`,
+    facts: [
+      { name: "Tablero", value: boardName },
+      { name: "De", value: fromColumn },
+      { name: "A", value: toColumn },
+      { name: "Movido por", value: moverName }
+    ],
+    actionUrl: cardUrl
+  }
+
+  if (creatorUser.teams_conversation_ref) {
+    const sent = await sendProactiveMessage(creatorUser.teams_conversation_ref, message)
+    if (sent) return true
+  }
+
+  if (creatorUser.teams_webhook) {
+    return sendTeamsNotification(creatorUser.teams_webhook, message)
+  }
+
+  return false
+}
+
 export async function notifyMention(mentionedUser, mentionerName, cardTitle, commentContent, boardName, cardUrl) {
   const message = {
     title: `Te han mencionado en Planner`,
