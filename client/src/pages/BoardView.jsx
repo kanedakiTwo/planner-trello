@@ -232,7 +232,7 @@ export default function BoardView() {
   return (
     <div className={`min-h-screen ${getBoardColor(boardId).gradient} flex flex-col`}>
       {/* Header */}
-      <header className="bg-black/15 backdrop-blur-md border-b border-white/10">
+      <header className="bg-black/15 backdrop-blur-md border-b border-white/10 relative z-20">
         <div className="px-5 py-3 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <Link to="/" className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
