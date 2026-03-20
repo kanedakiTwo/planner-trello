@@ -61,20 +61,23 @@ router.post('/:columnId/cards', authenticateToken, async (req, res) => {
     // Notify board responsible (async, don't block response)
     ;(async () => {
       try {
+        console.log('NEW CARD: checking board responsible notification for card:', cardId)
         const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(req.params.columnId)
-        if (!column) return
+        if (!column) { console.log('NEW CARD: column not found'); return }
 
         const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(column.board_id)
-        if (!board || !board.responsible_id) return
+        console.log('NEW CARD: board =', board?.name, 'responsible_id =', board?.responsible_id)
+        if (!board || !board.responsible_id) { console.log('NEW CARD: no responsible assigned'); return }
 
         // Don't notify if the creator IS the responsible
-        if (board.responsible_id === req.user.id) return
+        if (board.responsible_id === req.user.id) { console.log('NEW CARD: creator is responsible, skipping'); return }
 
         const responsible = await db.prepare(
           'SELECT id, name, teams_conversation_ref, teams_webhook FROM users WHERE id = ?'
         ).get(board.responsible_id)
 
-        if (!responsible) return
+        console.log('NEW CARD: responsible =', responsible?.name, 'has_ref =', !!responsible?.teams_conversation_ref, 'has_webhook =', !!responsible?.teams_webhook)
+        if (!responsible) { console.log('NEW CARD: responsible user not found'); return }
 
         const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
         const cardUrl = `${appUrl}/board/${column.board_id}?card=${cardId}`
