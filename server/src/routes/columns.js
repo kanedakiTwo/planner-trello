@@ -22,6 +22,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(req.params.id)
     if (name !== undefined) logAction(req, 'Renombrar columna', { column: name })
+    if (position !== undefined) logAction(req, 'Mover columna', { column: column.name, nuevaPosicion: position })
     res.json(column)
   } catch (error) {
     logError('Update column', error)

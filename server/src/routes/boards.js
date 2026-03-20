@@ -74,7 +74,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return { ...column, cards: cardsWithDetails }
     }))
 
-    logAction(req, 'Ver tablero', { board: board.name })
+    const colPositions = columnsWithCards.map(c => `${c.name}:${c.position}`).join(', ')
+    logAction(req, 'Ver tablero', { board: board.name, columnas: colPositions })
     res.json({ board, columns: columnsWithCards })
   } catch (error) {
     logError('Get board', error)
