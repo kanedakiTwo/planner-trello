@@ -40,8 +40,9 @@ export class PlannerBot extends ActivityHandler {
         return
       }
 
-      const text = context.activity.text?.toLowerCase().trim()
+      const text = context.activity.text?.toLowerCase().trim().replace(/<[^>]*>/g, '').trim()
       const rawText = context.activity.text?.trim() || ''
+      console.log('[BOT] Mensaje recibido:', JSON.stringify({ text, rawText, from: context.activity.from?.name }))
 
       if (text === 'conectar' || text === 'vincular' || text === 'link') {
         await this.handleLinkRequest(context)
@@ -497,27 +498,29 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
         return
       }
 
-      // Get cards assigned to this user in "Por hacer" or "En progreso" columns
+      // Get cards assigned to or created by this user in "Por hacer" or "En progreso" columns
       const cards = await db.prepare(`
-        SELECT c.id, c.title, c.priority, c.due_date, c.created_at,
+        SELECT DISTINCT c.id, c.title, c.priority, c.due_date, c.created_at,
           col.name as column_name,
           b.id as board_id, b.name as board_name,
           creator.name as created_by_name
         FROM cards c
-        JOIN card_assignees ca ON ca.card_id = c.id
         JOIN columns col ON c.column_id = col.id
         JOIN boards b ON col.board_id = b.id
         LEFT JOIN users creator ON c.created_by = creator.id
-        WHERE ca.user_id = ?
-          AND LOWER(col.name) IN ('por hacer', 'en progreso')
+        LEFT JOIN card_assignees ca ON ca.card_id = c.id AND ca.user_id = ?
+        WHERE (ca.user_id = ? OR c.created_by = ?)
+          AND LOWER(col.name) NOT IN ('hecho', 'done', 'cerrado', 'completado')
         ORDER BY
           CASE LOWER(col.name) WHEN 'en progreso' THEN 0 ELSE 1 END,
           CASE c.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
           c.created_at DESC
-      `).all(user.id)
+      `).all(user.id, user.id, user.id)
+
+      console.log(`[BOT] mis tareas: user=${user.name}, found=${cards.length} cards`)
 
       if (cards.length === 0) {
-        await context.sendActivity('No tienes tareas asignadas en columnas "Por hacer" o "En progreso".')
+        await context.sendActivity('No tienes tareas pendientes (asignadas o creadas por ti).')
         return
       }
 
@@ -525,9 +528,9 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       const priorityEmoji = { urgent: '🔴', high: '🟠', medium: '🟡', low: '🟢' }
       const priorityLabel = { urgent: 'Urgente', high: 'Alta', medium: 'Media', low: 'Baja' }
 
-      // Group by column
+      // Group by column name
       const enProgreso = cards.filter(c => c.column_name.toLowerCase() === 'en progreso')
-      const porHacer = cards.filter(c => c.column_name.toLowerCase() === 'por hacer')
+      const porHacer = cards.filter(c => c.column_name.toLowerCase() !== 'en progreso')
 
       // Build Adaptive Card
       const bodyItems = [
