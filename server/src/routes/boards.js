@@ -41,8 +41,19 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const columns = await db.prepare(`
       SELECT * FROM columns
       WHERE board_id = ?
-      ORDER BY position
+      ORDER BY position, created_at
     `).all(req.params.id)
+
+    // Fix duplicate positions: re-assign sequential positions if needed
+    const hasdupes = columns.some((c, i) => i > 0 && c.position === columns[i - 1].position)
+    if (hasdupes) {
+      for (let i = 0; i < columns.length; i++) {
+        if (columns[i].position !== i) {
+          await db.prepare('UPDATE columns SET position = ? WHERE id = ?').run(i, columns[i].id)
+          columns[i].position = i
+        }
+      }
+    }
 
     // Get cards for each column with assignees and labels
     const columnsWithCards = await Promise.all(columns.map(async column => {

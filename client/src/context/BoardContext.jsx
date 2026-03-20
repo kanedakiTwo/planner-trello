@@ -108,17 +108,16 @@ export function BoardProvider({ children }) {
       if (swapIdx < 0 || swapIdx >= prev.length) return prev
 
       const next = [...prev]
-      const posA = next[idx].position
-      const posB = next[swapIdx].position
-      next[idx] = { ...next[idx], position: posB }
-      next[swapIdx] = { ...next[swapIdx], position: posA }
       ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
 
-      // Persist both swapped positions
-      boardService.updateColumn(next[swapIdx].id, { position: posA })
-      boardService.updateColumn(next[idx].id, { position: posB })
+      // Assign clean sequential positions based on array order
+      const updated = next.map((col, i) => ({ ...col, position: i }))
 
-      return next
+      // Persist the two affected positions
+      boardService.updateColumn(updated[idx].id, { position: idx })
+      boardService.updateColumn(updated[swapIdx].id, { position: swapIdx })
+
+      return updated
     })
   }
 
