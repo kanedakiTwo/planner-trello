@@ -54,8 +54,10 @@ export class PlannerBot extends ActivityHandler {
         await this.handleTableros(context)
       } else if (text.startsWith('/tarea') || text.startsWith('tarea')) {
         await this.handleCrearTarea(context, rawText)
-      } else if (text === 'mis tareas' || text === 'mis tickets' || text === '/mistareas' || text === 'mistareas') {
-        await this.handleMisTareas(context)
+      } else if (text === 'mis asignadas' || text === '/misasignadas' || text === 'misasignadas' || text === 'mis tareas asignadas') {
+        await this.handleMisAsignadas(context)
+      } else if (text === 'mis creadas' || text === '/miscreadas' || text === 'miscreadas' || text === 'mis tareas creadas' || text === 'mis tareas') {
+        await this.handleMisCreadas(context)
       } else {
         await context.sendActivity(
           `No entendi "${text}". Escribe **ayuda** para ver los comandos disponibles.`
@@ -102,7 +104,8 @@ export class PlannerBot extends ActivityHandler {
 - **estado** - Verifica si tu cuenta esta vinculada
 - **tableros** - Lista todos los tableros disponibles
 - **tarea** - Abre formulario para crear una tarea
-- **mis tareas** - Muestra tus tareas pendientes y en progreso
+- **mis asignadas** - Muestra las tareas que tienes asignadas (pendientes)
+- **mis creadas** - Muestra las tareas que has creado (pendientes)
 - **ayuda** - Muestra este mensaje
 
 Una vez vinculado, recibiras notificaciones y podras crear tareas directamente desde Teams.`
@@ -490,7 +493,7 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
     }
   }
 
-  async handleMisTareas(context) {
+  async handleMisAsignadas(context) {
     try {
       const user = await this.getLinkedUser(context)
       if (!user) {
@@ -498,136 +501,170 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
         return
       }
 
-      // Get cards assigned to or created by this user in "Por hacer" or "En progreso" columns
       const cards = await db.prepare(`
-        SELECT DISTINCT c.id, c.title, c.priority, c.due_date, c.created_at,
+        SELECT c.id, c.title, c.priority, c.due_date, c.created_at,
           col.name as column_name,
           b.id as board_id, b.name as board_name,
           creator.name as created_by_name
         FROM cards c
+        JOIN card_assignees ca ON ca.card_id = c.id
         JOIN columns col ON c.column_id = col.id
         JOIN boards b ON col.board_id = b.id
         LEFT JOIN users creator ON c.created_by = creator.id
-        LEFT JOIN card_assignees ca ON ca.card_id = c.id AND ca.user_id = ?
-        WHERE (ca.user_id = ? OR c.created_by = ?)
+        WHERE ca.user_id = ?
           AND LOWER(col.name) NOT IN ('hecho', 'done', 'cerrado', 'completado')
         ORDER BY
           CASE LOWER(col.name) WHEN 'en progreso' THEN 0 ELSE 1 END,
           CASE c.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
           c.created_at DESC
-      `).all(user.id, user.id, user.id)
+      `).all(user.id)
 
-      console.log(`[BOT] mis tareas: user=${user.name}, found=${cards.length} cards`)
+      console.log(`[BOT] mis asignadas: user=${user.name}, found=${cards.length}`)
+      await this.sendTaskListCard(context, cards, `Mis tareas asignadas`, 'No tienes tareas asignadas pendientes.', 'created_by_name')
+    } catch (error) {
+      console.error('Error listing assigned tasks:', error)
+      await context.sendActivity('Ocurrio un error al obtener tus tareas asignadas.')
+    }
+  }
 
-      if (cards.length === 0) {
-        await context.sendActivity('No tienes tareas pendientes (asignadas o creadas por ti).')
+  async handleMisCreadas(context) {
+    try {
+      const user = await this.getLinkedUser(context)
+      if (!user) {
+        await context.sendActivity('Necesitas vincular tu cuenta primero. Escribe **conectar** para vincularla.')
         return
       }
 
-      const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
-      const priorityEmoji = { urgent: '🔴', high: '🟠', medium: '🟡', low: '🟢' }
-      const priorityLabel = { urgent: 'Urgente', high: 'Alta', medium: 'Media', low: 'Baja' }
+      const cards = await db.prepare(`
+        SELECT c.id, c.title, c.priority, c.due_date, c.created_at,
+          col.name as column_name,
+          b.id as board_id, b.name as board_name,
+          (SELECT string_agg(u.name, ', ') FROM card_assignees ca2 JOIN users u ON ca2.user_id = u.id WHERE ca2.card_id = c.id) as assignee_names
+        FROM cards c
+        JOIN columns col ON c.column_id = col.id
+        JOIN boards b ON col.board_id = b.id
+        WHERE c.created_by = ?
+          AND LOWER(col.name) NOT IN ('hecho', 'done', 'cerrado', 'completado')
+        ORDER BY
+          CASE LOWER(col.name) WHEN 'en progreso' THEN 0 ELSE 1 END,
+          CASE c.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
+          c.created_at DESC
+      `).all(user.id)
 
-      // Group by column name
-      const enProgreso = cards.filter(c => c.column_name.toLowerCase() === 'en progreso')
-      const porHacer = cards.filter(c => c.column_name.toLowerCase() !== 'en progreso')
+      console.log(`[BOT] mis creadas: user=${user.name}, found=${cards.length}`)
+      await this.sendTaskListCard(context, cards, `Mis tareas creadas`, 'No tienes tareas creadas pendientes.', 'assignee_names')
+    } catch (error) {
+      console.error('Error listing created tasks:', error)
+      await context.sendActivity('Ocurrio un error al obtener tus tareas creadas.')
+    }
+  }
 
-      // Build Adaptive Card
-      const bodyItems = [
-        {
-          "type": "TextBlock",
-          "text": `Mis tareas (${cards.length})`,
-          "weight": "Bolder",
-          "size": "Medium",
-          "color": "Accent"
-        }
-      ]
+  async sendTaskListCard(context, cards, title, emptyMessage, extraField) {
+    if (cards.length === 0) {
+      await context.sendActivity(emptyMessage)
+      return
+    }
 
-      const buildSection = (title, sectionCards, emoji) => {
-        if (sectionCards.length === 0) return
+    const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
+    const priorityEmoji = { urgent: '🔴', high: '🟠', medium: '🟡', low: '🟢' }
+    const priorityLabel = { urgent: 'Urgente', high: 'Alta', medium: 'Media', low: 'Baja' }
 
-        bodyItems.push({
-          "type": "TextBlock",
-          "text": `${emoji} ${title} (${sectionCards.length})`,
-          "weight": "Bolder",
-          "spacing": "Medium",
-          "size": "Small"
-        })
+    const enProgreso = cards.filter(c => c.column_name.toLowerCase() === 'en progreso')
+    const resto = cards.filter(c => c.column_name.toLowerCase() !== 'en progreso')
 
-        for (const card of sectionCards) {
-          const pEmoji = priorityEmoji[card.priority] || '⚪'
-          const pLabel = priorityLabel[card.priority] || ''
-          let subtitle = `${card.board_name}`
-          if (pLabel) subtitle += ` | ${pEmoji} ${pLabel}`
-          if (card.due_date) {
-            const d = new Date(card.due_date)
-            const dateStr = d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
-            const isOverdue = d < new Date(new Date().toDateString())
-            subtitle += ` | ${isOverdue ? '⚠️' : '📅'} ${dateStr}`
-          }
-
-          bodyItems.push({
-            "type": "ColumnSet",
-            "spacing": "Small",
-            "columns": [
-              {
-                "type": "Column",
-                "width": "stretch",
-                "items": [
-                  {
-                    "type": "TextBlock",
-                    "text": card.title,
-                    "weight": "Bolder",
-                    "size": "Small",
-                    "wrap": true
-                  },
-                  {
-                    "type": "TextBlock",
-                    "text": subtitle,
-                    "size": "Small",
-                    "isSubtle": true,
-                    "spacing": "None",
-                    "wrap": true
-                  }
-                ]
-              },
-              {
-                "type": "Column",
-                "width": "auto",
-                "verticalContentAlignment": "Center",
-                "items": [
-                  {
-                    "type": "ActionSet",
-                    "actions": [
-                      {
-                        "type": "Action.OpenUrl",
-                        "title": "Ver",
-                        "url": `${appUrl}/board/${card.board_id}?card=${card.id}`
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          })
-        }
+    const bodyItems = [
+      {
+        "type": "TextBlock",
+        "text": `${title} (${cards.length})`,
+        "weight": "Bolder",
+        "size": "Medium",
+        "color": "Accent"
       }
+    ]
 
-      buildSection('En progreso', enProgreso, '🔧')
-      buildSection('Por hacer', porHacer, '📋')
+    const buildSection = (sectionTitle, sectionCards, emoji) => {
+      if (sectionCards.length === 0) return
 
-      const adaptiveCard = CardFactory.adaptiveCard({
-        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-        "type": "AdaptiveCard",
-        "version": "1.4",
-        "body": bodyItems
+      bodyItems.push({
+        "type": "TextBlock",
+        "text": `${emoji} ${sectionTitle} (${sectionCards.length})`,
+        "weight": "Bolder",
+        "spacing": "Medium",
+        "size": "Small"
       })
 
-      await context.sendActivity({ attachments: [adaptiveCard] })
-    } catch (error) {
-      console.error('Error listing user tasks:', error)
-      await context.sendActivity('Ocurrio un error al obtener tus tareas.')
+      for (const card of sectionCards) {
+        const pEmoji = priorityEmoji[card.priority] || '⚪'
+        const pLabel = priorityLabel[card.priority] || ''
+        let subtitle = `${card.board_name}`
+        if (pLabel) subtitle += ` | ${pEmoji} ${pLabel}`
+        if (card.due_date) {
+          const d = new Date(card.due_date)
+          const dateStr = d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+          const isOverdue = d < new Date(new Date().toDateString())
+          subtitle += ` | ${isOverdue ? '⚠️' : '📅'} ${dateStr}`
+        }
+        const extra = card[extraField]
+        if (extra) subtitle += ` | ${extra}`
+
+        bodyItems.push({
+          "type": "ColumnSet",
+          "spacing": "Small",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": card.title,
+                  "weight": "Bolder",
+                  "size": "Small",
+                  "wrap": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": subtitle,
+                  "size": "Small",
+                  "isSubtle": true,
+                  "spacing": "None",
+                  "wrap": true
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "verticalContentAlignment": "Center",
+              "items": [
+                {
+                  "type": "ActionSet",
+                  "actions": [
+                    {
+                      "type": "Action.OpenUrl",
+                      "title": "Ver",
+                      "url": `${appUrl}/board/${card.board_id}?card=${card.id}`
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        })
+      }
     }
+
+    buildSection('En progreso', enProgreso, '🔧')
+    buildSection('Por hacer', resto, '📋')
+
+    const adaptiveCard = CardFactory.adaptiveCard({
+      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+      "type": "AdaptiveCard",
+      "version": "1.4",
+      "body": bodyItems
+    })
+
+    await context.sendActivity({ attachments: [adaptiveCard] })
   }
 
   async handleLinkRequest(context) {
