@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
 import { authenticateToken } from '../middleware/auth.js'
+import { logAction, logError } from '../utils/logger.js'
 
 const router = Router()
 
@@ -18,7 +19,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     res.json(boards)
   } catch (error) {
-    console.error('Get boards error:', error)
+    logError('Get boards', error)
     res.status(500).json({ message: 'Error al obtener tableros' })
   }
 })
@@ -73,9 +74,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return { ...column, cards: cardsWithDetails }
     }))
 
+    logAction(req, 'Ver tablero', { board: board.name })
     res.json({ board, columns: columnsWithCards })
   } catch (error) {
-    console.error('Get board error:', error)
+    logError('Get board', error)
     res.status(500).json({ message: 'Error al obtener tablero' })
   }
 })
@@ -107,9 +109,10 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(boardId)
+    logAction(req, 'Crear tablero', { board: name, responsible: responsible_id || 'ninguno' })
     res.status(201).json(board)
   } catch (error) {
-    console.error('Create board error:', error)
+    logError('Create board', error)
     res.status(500).json({ message: 'Error al crear tablero' })
   }
 })
@@ -146,9 +149,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
       LEFT JOIN users r ON b.responsible_id = r.id
       WHERE b.id = ?
     `).get(req.params.id)
+
+    logAction(req, 'Actualizar tablero', { board: board.name, responsible: board.responsible_name || 'ninguno' })
     res.json(board)
   } catch (error) {
-    console.error('Update board error:', error)
+    logError('Update board', error)
     res.status(500).json({ message: 'Error al actualizar tablero' })
   }
 })
@@ -156,10 +161,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // Delete board
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
+    const board = await db.prepare('SELECT name FROM boards WHERE id = ?').get(req.params.id)
     await db.prepare('DELETE FROM boards WHERE id = ?').run(req.params.id)
+    logAction(req, 'Eliminar tablero', { board: board?.name })
     res.json({ message: 'Tablero eliminado' })
   } catch (error) {
-    console.error('Delete board error:', error)
+    logError('Delete board', error)
     res.status(500).json({ message: 'Error al eliminar tablero' })
   }
 })
@@ -183,9 +190,10 @@ router.post('/:boardId/columns', authenticateToken, async (req, res) => {
     `).run(columnId, req.params.boardId, name, position)
 
     const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(columnId)
+    logAction(req, 'Crear columna', { column: name })
     res.status(201).json(column)
   } catch (error) {
-    console.error('Create column error:', error)
+    logError('Create column', error)
     res.status(500).json({ message: 'Error al crear columna' })
   }
 })
@@ -202,7 +210,7 @@ router.get('/:boardId/members', authenticateToken, async (req, res) => {
 
     res.json(members)
   } catch (error) {
-    console.error('Get members error:', error)
+    logError('Get members', error)
     res.status(500).json({ message: 'Error al obtener miembros' })
   }
 })
@@ -218,9 +226,10 @@ router.post('/:boardId/members', authenticateToken, async (req, res) => {
       ON CONFLICT DO NOTHING
     `).run(req.params.boardId, userId)
 
+    logAction(req, 'Agregar miembro', { userId })
     res.json({ message: 'Miembro agregado' })
   } catch (error) {
-    console.error('Add member error:', error)
+    logError('Add member', error)
     res.status(500).json({ message: 'Error al agregar miembro' })
   }
 })

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
 import { authenticateToken } from '../middleware/auth.js'
 import { notifyNewCard } from '../services/teams.js'
+import { logAction, logNotification, logError } from '../utils/logger.js'
 
 const router = Router()
 
@@ -20,9 +21,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
 
     const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(req.params.id)
+    if (name !== undefined) logAction(req, 'Renombrar columna', { column: name })
     res.json(column)
   } catch (error) {
-    console.error('Update column error:', error)
+    logError('Update column', error)
     res.status(500).json({ message: 'Error al actualizar columna' })
   }
 })
@@ -30,10 +32,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // Delete column
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
+    const column = await db.prepare('SELECT name FROM columns WHERE id = ?').get(req.params.id)
     await db.prepare('DELETE FROM columns WHERE id = ?').run(req.params.id)
+    logAction(req, 'Eliminar columna', { column: column?.name })
     res.json({ message: 'Columna eliminada' })
   } catch (error) {
-    console.error('Delete column error:', error)
+    logError('Delete column', error)
     res.status(500).json({ message: 'Error al eliminar columna' })
   }
 })
@@ -58,47 +62,53 @@ router.post('/:columnId/cards', authenticateToken, async (req, res) => {
 
     const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId)
 
+    // Get column and board info for logging
+    const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(req.params.columnId)
+    const board = column ? await db.prepare('SELECT * FROM boards WHERE id = ?').get(column.board_id) : null
+
+    logAction(req, 'Crear tarjeta', { title, board: board?.name, column: column?.name, priority: priority || 'sin prioridad' })
+
     // Notify board responsible (async, don't block response)
-    ;(async () => {
-      try {
-        console.log('NEW CARD: checking board responsible notification for card:', cardId)
-        const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(req.params.columnId)
-        if (!column) { console.log('NEW CARD: column not found'); return }
+    if (board && board.responsible_id && board.responsible_id !== req.user.id) {
+      ;(async () => {
+        try {
+          const responsible = await db.prepare(
+            'SELECT id, name, teams_conversation_ref, teams_webhook FROM users WHERE id = ?'
+          ).get(board.responsible_id)
 
-        const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(column.board_id)
-        console.log('NEW CARD: board =', board?.name, 'responsible_id =', board?.responsible_id)
-        if (!board || !board.responsible_id) { console.log('NEW CARD: no responsible assigned'); return }
+          if (!responsible) {
+            logNotification('Nueva tarjeta', board.responsible_id, false, { reason: 'usuario no encontrado' })
+            return
+          }
 
-        // Don't notify if the creator IS the responsible
-        if (board.responsible_id === req.user.id) { console.log('NEW CARD: creator is responsible, skipping'); return }
+          const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
+          const cardUrl = `${appUrl}/board/${column.board_id}?card=${cardId}`
 
-        const responsible = await db.prepare(
-          'SELECT id, name, teams_conversation_ref, teams_webhook FROM users WHERE id = ?'
-        ).get(board.responsible_id)
-
-        console.log('NEW CARD: responsible =', responsible?.name, 'has_ref =', !!responsible?.teams_conversation_ref, 'has_webhook =', !!responsible?.teams_webhook)
-        if (!responsible) { console.log('NEW CARD: responsible user not found'); return }
-
-        const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
-        const cardUrl = `${appUrl}/board/${column.board_id}?card=${cardId}`
-
-        notifyNewCard(
-          responsible,
-          req.user.name,
-          title,
-          column.name,
-          board.name,
-          priority || null,
-          cardUrl
-        ).catch(err => console.error('New card notification error:', err))
-      } catch (err) {
-        console.error('Error preparing new card notification:', err)
-      }
-    })()
+          const sent = await notifyNewCard(
+            responsible,
+            req.user.name,
+            title,
+            column.name,
+            board.name,
+            priority || null,
+            cardUrl
+          )
+          logNotification('Nueva tarjeta', responsible.name, sent, {
+            board: board.name,
+            card: title,
+            via: responsible.teams_conversation_ref ? 'bot' : responsible.teams_webhook ? 'webhook' : 'sin canal'
+          })
+        } catch (err) {
+          logError('Notificacion nueva tarjeta', err)
+        }
+      })()
+    } else if (board && !board.responsible_id) {
+      logNotification('Nueva tarjeta', '-', false, { reason: 'tablero sin responsable', board: board.name })
+    }
 
     res.status(201).json({ ...card, assignees: [], labels: [], comments_count: 0 })
   } catch (error) {
-    console.error('Create card error:', error)
+    logError('Create card', error)
     res.status(500).json({ message: 'Error al crear tarjeta' })
   }
 })

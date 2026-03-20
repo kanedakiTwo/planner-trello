@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
 import { authenticateToken } from '../middleware/auth.js'
 import { notifyMention, notifyColumnChange } from '../services/teams.js'
+import { logAction, logNotification, logError } from '../utils/logger.js'
 
 const router = Router()
 
@@ -26,7 +27,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     res.json({ ...card, assignees, labels })
   } catch (error) {
-    console.error('Get card error:', error)
+    logError('Get card', error)
     res.status(500).json({ message: 'Error al obtener tarjeta' })
   }
 })
@@ -62,9 +63,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
 
     const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id)
+    logAction(req, 'Actualizar tarjeta', { card: card.title })
     res.json(card)
   } catch (error) {
-    console.error('Update card error:', error)
+    logError('Update card', error)
     res.status(500).json({ message: 'Error al actualizar tarjeta' })
   }
 })
@@ -73,23 +75,19 @@ router.put('/:id', authenticateToken, async (req, res) => {
 router.patch('/:id/move', authenticateToken, async (req, res) => {
   try {
     const { columnId, position } = req.body
-    console.log('MOVE CARD REQUEST:', { cardId: req.params.id, columnId, position, userId: req.user.id })
 
     if (!columnId) {
-      console.error('Move card: columnId is missing!')
       return res.status(400).json({ message: 'columnId es obligatorio' })
     }
 
     // Read current card BEFORE updating (for notification)
     const currentCard = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id)
     const previousColumnId = currentCard?.column_id
-    console.log('MOVE CARD: current column =', previousColumnId, '-> new column =', columnId)
 
     // Update card position and column
-    const result = await db.prepare(`
+    await db.prepare(`
       UPDATE cards SET column_id = ?, position = ? WHERE id = ?
     `).run(columnId, position, req.params.id)
-    console.log('MOVE CARD: update result =', result)
 
     // Reorder other cards in target column
     const cards = await db.prepare(`
@@ -101,55 +99,35 @@ router.patch('/:id/move', authenticateToken, async (req, res) => {
       await db.prepare('UPDATE cards SET position = ? WHERE id = ?').run(newPosition, cards[index].id)
     }
 
-    // Notify card creator via Teams if column changed
+    // Notify if column changed
     const columnChanged = currentCard && previousColumnId !== columnId
-    const isSelfMove = currentCard?.created_by === req.user.id
-    console.log('Move card notification check:', {
-      cardId: req.params.id,
-      previousColumnId,
-      newColumnId: columnId,
-      columnChanged,
-      createdBy: currentCard?.created_by,
-      movedBy: req.user.id,
-      isSelfMove
-    })
-
     if (columnChanged) {
-      (async () => {
+      const fromCol = await db.prepare('SELECT name FROM columns WHERE id = ?').get(previousColumnId)
+      const toCol = await db.prepare('SELECT name FROM columns WHERE id = ?').get(columnId)
+      logAction(req, 'Mover tarjeta', { card: currentCard.title, de: fromCol?.name, a: toCol?.name })
+
+      ;(async () => {
         try {
-          const fromCol = await db.prepare('SELECT name FROM columns WHERE id = ?').get(previousColumnId)
-          const toCol = await db.prepare('SELECT name FROM columns WHERE id = ?').get(columnId)
           const board = await db.prepare(`
             SELECT b.name FROM boards b
             JOIN columns c ON c.board_id = b.id
             WHERE c.id = ?
           `).get(columnId)
           const creator = await db.prepare('SELECT id, name, teams_conversation_ref, teams_webhook FROM users WHERE id = ?').get(currentCard.created_by)
-
-          console.log('Column change notification data:', {
-            from: fromCol?.name,
-            to: toCol?.name,
-            board: board?.name,
-            creator: creator?.name,
-            hasConversationRef: !!creator?.teams_conversation_ref,
-            hasWebhook: !!creator?.teams_webhook,
-            isSelfMove
-          })
+          const isSelfMove = currentCard.created_by === req.user.id
 
           if (creator && fromCol && toCol && board) {
-            // Notify creator (skip if self-move), and notify all assignees
             const col = await db.prepare('SELECT board_id FROM columns WHERE id = ?').get(columnId)
             const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
             const cardUrl = `${appUrl}/board/${col.board_id}?card=${req.params.id}`
 
             // Notify creator if different from mover
             if (!isSelfMove) {
-              console.log('Sending column change notification to creator:', creator.name)
-              notifyColumnChange(creator, req.user.name, currentCard.title, fromCol.name, toCol.name, board.name, cardUrl)
-                .catch(err => console.error('Column change notification error:', err))
+              const sent = await notifyColumnChange(creator, req.user.name, currentCard.title, fromCol.name, toCol.name, board.name, cardUrl)
+              logNotification('Movimiento tarjeta', creator.name, sent, { card: currentCard.title, de: fromCol.name, a: toCol.name })
             }
 
-            // Also notify all assignees (except the mover)
+            // Notify all assignees (except the mover and creator already notified)
             const assignees = await db.prepare(`
               SELECT u.id, u.name, u.teams_conversation_ref, u.teams_webhook
               FROM card_assignees ca
@@ -158,21 +136,22 @@ router.patch('/:id/move', authenticateToken, async (req, res) => {
             `).all(req.params.id, req.user.id)
 
             for (const assignee of assignees) {
-              if (assignee.id === currentCard.created_by) continue // Already notified as creator
-              console.log('Sending column change notification to assignee:', assignee.name)
-              notifyColumnChange(assignee, req.user.name, currentCard.title, fromCol.name, toCol.name, board.name, cardUrl)
-                .catch(err => console.error('Column change notification error (assignee):', err))
+              if (assignee.id === currentCard.created_by) continue
+              const sent = await notifyColumnChange(assignee, req.user.name, currentCard.title, fromCol.name, toCol.name, board.name, cardUrl)
+              logNotification('Movimiento tarjeta', assignee.name, sent, { card: currentCard.title, rol: 'asignado' })
             }
           }
         } catch (err) {
-          console.error('Error preparing column change notification:', err)
+          logError('Notificacion movimiento tarjeta', err)
         }
       })()
+    } else {
+      logAction(req, 'Reordenar tarjeta', { card: currentCard?.title, position })
     }
 
     res.json({ message: 'Tarjeta movida' })
   } catch (error) {
-    console.error('Move card error:', error)
+    logError('Move card', error)
     res.status(500).json({ message: 'Error al mover tarjeta' })
   }
 })
@@ -180,10 +159,12 @@ router.patch('/:id/move', authenticateToken, async (req, res) => {
 // Delete card
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
+    const card = await db.prepare('SELECT title FROM cards WHERE id = ?').get(req.params.id)
     await db.prepare('DELETE FROM cards WHERE id = ?').run(req.params.id)
+    logAction(req, 'Eliminar tarjeta', { card: card?.title })
     res.json({ message: 'Tarjeta eliminada' })
   } catch (error) {
-    console.error('Delete card error:', error)
+    logError('Delete card', error)
     res.status(500).json({ message: 'Error al eliminar tarjeta' })
   }
 })
@@ -199,9 +180,12 @@ router.post('/:id/assignees', authenticateToken, async (req, res) => {
       ON CONFLICT DO NOTHING
     `).run(req.params.id, userId)
 
+    const card = await db.prepare('SELECT title FROM cards WHERE id = ?').get(req.params.id)
+    const user = await db.prepare('SELECT name FROM users WHERE id = ?').get(userId)
+    logAction(req, 'Asignar usuario', { card: card?.title, asignado: user?.name })
     res.json({ message: 'Asignado agregado' })
   } catch (error) {
-    console.error('Add assignee error:', error)
+    logError('Add assignee', error)
     res.status(500).json({ message: 'Error al agregar asignado' })
   }
 })
@@ -213,9 +197,12 @@ router.delete('/:id/assignees/:userId', authenticateToken, async (req, res) => {
       DELETE FROM card_assignees WHERE card_id = ? AND user_id = ?
     `).run(req.params.id, req.params.userId)
 
+    const card = await db.prepare('SELECT title FROM cards WHERE id = ?').get(req.params.id)
+    const user = await db.prepare('SELECT name FROM users WHERE id = ?').get(req.params.userId)
+    logAction(req, 'Desasignar usuario', { card: card?.title, desasignado: user?.name })
     res.json({ message: 'Asignado eliminado' })
   } catch (error) {
-    console.error('Remove assignee error:', error)
+    logError('Remove assignee', error)
     res.status(500).json({ message: 'Error al eliminar asignado' })
   }
 })
@@ -232,9 +219,11 @@ router.post('/:id/labels', authenticateToken, async (req, res) => {
     `).run(labelId, req.params.id, name, color)
 
     const label = await db.prepare('SELECT * FROM card_labels WHERE id = ?').get(labelId)
+    const card = await db.prepare('SELECT title FROM cards WHERE id = ?').get(req.params.id)
+    logAction(req, 'Agregar etiqueta', { card: card?.title, etiqueta: name })
     res.status(201).json(label)
   } catch (error) {
-    console.error('Add label error:', error)
+    logError('Add label', error)
     res.status(500).json({ message: 'Error al agregar etiqueta' })
   }
 })
@@ -242,10 +231,12 @@ router.post('/:id/labels', authenticateToken, async (req, res) => {
 // Remove label
 router.delete('/:id/labels/:labelId', authenticateToken, async (req, res) => {
   try {
+    const label = await db.prepare('SELECT name FROM card_labels WHERE id = ?').get(req.params.labelId)
     await db.prepare('DELETE FROM card_labels WHERE id = ?').run(req.params.labelId)
+    logAction(req, 'Eliminar etiqueta', { etiqueta: label?.name })
     res.json({ message: 'Etiqueta eliminada' })
   } catch (error) {
-    console.error('Remove label error:', error)
+    logError('Remove label', error)
     res.status(500).json({ message: 'Error al eliminar etiqueta' })
   }
 })
@@ -263,7 +254,7 @@ router.get('/:id/comments', authenticateToken, async (req, res) => {
 
     res.json(comments)
   } catch (error) {
-    console.error('Get comments error:', error)
+    logError('Get comments', error)
     res.status(500).json({ message: 'Error al obtener comentarios' })
   }
 })
@@ -289,13 +280,13 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
 
     const board = card ? await db.prepare('SELECT name FROM boards WHERE id = ?').get(card.board_id) : null
 
+    logAction(req, 'Comentar', { card: card?.title, board: board?.name })
+
     // Extract mentions and create notifications
     const mentions = content.match(/@([\w\u00C0-\u024F]+)/g) || []
-    console.log('Mentions found:', mentions)
     for (const mention of mentions) {
       const userName = mention.slice(1)
       const mentionedUser = await db.prepare('SELECT id, name, teams_webhook, teams_conversation_ref FROM users WHERE name LIKE ? ORDER BY teams_conversation_ref DESC NULLS LAST LIMIT 1').get(`%${userName}%`)
-      console.log('Mentioned user found:', mentionedUser?.name, 'has_ref:', !!mentionedUser?.teams_conversation_ref)
       if (mentionedUser) {
         await db.prepare(`
           INSERT INTO mentions (id, card_id, comment_id, user_id)
@@ -303,17 +294,18 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
         `).run(uuidv4(), req.params.id, commentId, mentionedUser.id)
 
         // Send Teams notification
-        const appUrl = process.env.APP_URL || 'http://localhost:5173'
+        const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
         const cardUrl = `${appUrl}/board/${card?.board_id}?card=${req.params.id}`
 
-        notifyMention(
+        const sent = await notifyMention(
           mentionedUser,
           req.user.name,
           card?.title || 'Tarjeta',
           content,
           board?.name || 'Tablero',
           cardUrl
-        ).catch(err => console.error('Teams notification error:', err))
+        )
+        logNotification('Mencion', mentionedUser.name, sent, { card: card?.title, mencionadoPor: req.user.name })
       }
     }
 
@@ -326,7 +318,7 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
 
     res.status(201).json(comment)
   } catch (error) {
-    console.error('Add comment error:', error)
+    logError('Add comment', error)
     res.status(500).json({ message: 'Error al agregar comentario' })
   }
 })
@@ -335,9 +327,10 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
 router.delete('/comments/:id', authenticateToken, async (req, res) => {
   try {
     await db.prepare('DELETE FROM comments WHERE id = ?').run(req.params.id)
+    logAction(req, 'Eliminar comentario')
     res.json({ message: 'Comentario eliminado' })
   } catch (error) {
-    console.error('Delete comment error:', error)
+    logError('Delete comment', error)
     res.status(500).json({ message: 'Error al eliminar comentario' })
   }
 })

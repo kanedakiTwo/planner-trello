@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
 import { authenticateToken, authorizeAdmin } from '../middleware/auth.js'
+import { logAction, logError } from '../utils/logger.js'
 
 const router = Router()
 
@@ -20,7 +21,7 @@ router.get('/users', async (req, res) => {
     ).all()
     res.json(users)
   } catch (error) {
-    console.error('Admin list users error:', error)
+    logError('Admin list users', error)
     res.status(500).json({ message: 'Error al obtener usuarios' })
   }
 })
@@ -48,6 +49,7 @@ router.post('/users', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(userId, email, passwordHash, name, department || null, userRole)
 
+    logAction(req, 'Admin: crear usuario', { usuario: name, email, rol: userRole })
     res.status(201).json({
       id: userId,
       email,
@@ -56,7 +58,7 @@ router.post('/users', async (req, res) => {
       role: userRole
     })
   } catch (error) {
-    console.error('Admin create user error:', error)
+    logError('Admin create user', error)
     res.status(500).json({ message: 'Error al crear usuario' })
   }
 })
@@ -68,7 +70,7 @@ router.delete('/users/:id', async (req, res) => {
       return res.status(400).json({ message: 'No puedes eliminarte a ti mismo' })
     }
 
-    const user = await db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id)
+    const user = await db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(req.params.id)
     if (!user) {
       return res.status(404).json({ message: 'Usuario no encontrado' })
     }
@@ -87,9 +89,10 @@ router.delete('/users/:id', async (req, res) => {
     await db.prepare('DELETE FROM mentions WHERE user_id = ?').run(userId)
 
     await db.prepare('DELETE FROM users WHERE id = ?').run(userId)
+    logAction(req, 'Admin: eliminar usuario', { usuario: user.name, email: user.email })
     res.json({ message: 'Usuario eliminado' })
   } catch (error) {
-    console.error('Admin delete user error:', error)
+    logError('Admin delete user', error)
     res.status(500).json({ message: 'Error al eliminar usuario' })
   }
 })
@@ -106,10 +109,12 @@ router.patch('/users/:id/role', async (req, res) => {
       return res.status(400).json({ message: 'No puedes cambiar tu propio rol' })
     }
 
+    const user = await db.prepare('SELECT name FROM users WHERE id = ?').get(req.params.id)
     await db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id)
+    logAction(req, 'Admin: cambiar rol', { usuario: user?.name, nuevoRol: role })
     res.json({ message: 'Rol actualizado' })
   } catch (error) {
-    console.error('Admin update role error:', error)
+    logError('Admin update role', error)
     res.status(500).json({ message: 'Error al actualizar rol' })
   }
 })
@@ -126,10 +131,12 @@ router.patch('/users/:id/active', async (req, res) => {
       return res.status(400).json({ message: 'No puedes desactivarte a ti mismo' })
     }
 
+    const user = await db.prepare('SELECT name FROM users WHERE id = ?').get(req.params.id)
     await db.prepare('UPDATE users SET active = ? WHERE id = ?').run(active, req.params.id)
+    logAction(req, active ? 'Admin: activar usuario' : 'Admin: desactivar usuario', { usuario: user?.name })
     res.json({ message: active ? 'Usuario activado' : 'Usuario desactivado' })
   } catch (error) {
-    console.error('Admin toggle active error:', error)
+    logError('Admin toggle active', error)
     res.status(500).json({ message: 'Error al cambiar estado del usuario' })
   }
 })
@@ -142,7 +149,7 @@ router.get('/departments', async (req, res) => {
     const departments = await db.prepare('SELECT * FROM departments ORDER BY position, name').all()
     res.json(departments)
   } catch (error) {
-    console.error('Admin list departments error:', error)
+    logError('Admin list departments', error)
     res.status(500).json({ message: 'Error al obtener departamentos' })
   }
 })
@@ -161,9 +168,10 @@ router.post('/departments', async (req, res) => {
     const id = uuidv4()
 
     await db.prepare('INSERT INTO departments (id, name, position) VALUES (?, ?, ?)').run(id, name.trim(), position)
+    logAction(req, 'Admin: crear departamento', { departamento: name.trim() })
     res.status(201).json({ id, name: name.trim(), position })
   } catch (error) {
-    console.error('Admin create department error:', error)
+    logError('Admin create department', error)
     res.status(500).json({ message: 'Error al crear departamento' })
   }
 })
@@ -175,9 +183,10 @@ router.patch('/departments/:id', async (req, res) => {
     if (!name?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' })
 
     await db.prepare('UPDATE departments SET name = ? WHERE id = ?').run(name.trim(), req.params.id)
+    logAction(req, 'Admin: renombrar departamento', { departamento: name.trim() })
     res.json({ message: 'Departamento actualizado' })
   } catch (error) {
-    console.error('Admin update department error:', error)
+    logError('Admin update department', error)
     res.status(500).json({ message: 'Error al actualizar departamento' })
   }
 })
@@ -185,10 +194,12 @@ router.patch('/departments/:id', async (req, res) => {
 // DELETE /api/admin/departments/:id
 router.delete('/departments/:id', async (req, res) => {
   try {
+    const dept = await db.prepare('SELECT name FROM departments WHERE id = ?').get(req.params.id)
     await db.prepare('DELETE FROM departments WHERE id = ?').run(req.params.id)
+    logAction(req, 'Admin: eliminar departamento', { departamento: dept?.name })
     res.json({ message: 'Departamento eliminado' })
   } catch (error) {
-    console.error('Admin delete department error:', error)
+    logError('Admin delete department', error)
     res.status(500).json({ message: 'Error al eliminar departamento' })
   }
 })

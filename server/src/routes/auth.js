@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
 import { authenticateToken } from '../middleware/auth.js'
+import { logAction, logError } from '../utils/logger.js'
 
 const router = Router()
 
@@ -35,12 +36,13 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' }
     )
 
+    console.log(`[USER] Registro: ${name} (${email})`)
     res.status(201).json({
       token,
       user: { id: userId, email, name, department, role: 'user' }
     })
   } catch (error) {
-    console.error('Register error:', error)
+    logError('Register', error)
     res.status(500).json({ message: 'Error al registrar usuario' })
   }
 })
@@ -53,17 +55,20 @@ router.post('/login', async (req, res) => {
     // Find user
     const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email)
     if (!user) {
+      console.log(`[USER] Login fallido: ${email} (no encontrado)`)
       return res.status(401).json({ message: 'Credenciales invalidas' })
     }
 
     // Verify password
     const validPassword = await bcrypt.compare(password, user.password_hash)
     if (!validPassword) {
+      console.log(`[USER] Login fallido: ${email} (password incorrecto)`)
       return res.status(401).json({ message: 'Credenciales invalidas' })
     }
 
     // Check if user is active
     if (user.active === false) {
+      console.log(`[USER] Login bloqueado: ${email} (cuenta desactivada)`)
       return res.status(403).json({ message: 'Tu cuenta ha sido desactivada. Contacta al administrador.' })
     }
 
@@ -74,6 +79,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     )
 
+    console.log(`[USER] Login: ${user.name} (${user.email})`)
     res.json({
       token,
       user: {
@@ -85,7 +91,7 @@ router.post('/login', async (req, res) => {
       }
     })
   } catch (error) {
-    console.error('Login error:', error)
+    logError('Login', error)
     res.status(500).json({ message: 'Error al iniciar sesion' })
   }
 })
@@ -99,7 +105,7 @@ router.get('/profile', authenticateToken, async (req, res) => {
     }
     res.json({ user })
   } catch (error) {
-    console.error('Profile error:', error)
+    logError('Profile', error)
     res.status(500).json({ message: 'Error al obtener perfil' })
   }
 })
