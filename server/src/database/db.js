@@ -100,10 +100,20 @@ async function seedDepartments() {
   }
 }
 
+// Add 'responsible_id' column to boards if it doesn't exist
+async function migrateResponsibleColumn() {
+  try {
+    await pool.query("ALTER TABLE boards ADD COLUMN IF NOT EXISTS responsible_id TEXT REFERENCES users(id)")
+  } catch (error) {
+    console.error('Responsible column migration error:', error.message)
+  }
+}
+
 // Initialize on startup
 await initializeDatabase()
 await migrateRoles()
 await migrateActiveColumn()
+await migrateResponsibleColumn()
 await seedDepartments()
 
 // Create a wrapper that mimics better-sqlite3 sync API but uses async pg

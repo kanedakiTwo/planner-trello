@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DndContext, DragOverlay, closestCorners, useSensor, useSensors, PointerSensor } from '@dnd-kit/core'
-import { arrayMove } from '@dnd-kit/sortable'
+import { arrayMove, SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useBoard } from '../context/BoardContext'
+import { updateColumn as updateColumnPosition } from '../services/boards'
 import { useAuth } from '../context/AuthContext'
 import { getBoardColor } from '../utils/boardColors'
+import { getUsers } from '../services/auth'
 import Column from '../components/Column/Column'
 import Card from '../components/Card/Card'
 import CardModal from '../components/Card/CardModal'
@@ -14,13 +16,17 @@ export default function BoardView() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user, logout } = useAuth()
-  const { currentBoard, columns, fetchBoard, createColumn, moveCard, updateBoard, deleteBoard, loading, setColumns } = useBoard()
+  const { currentBoard, columns, fetchBoard, createColumn, moveCard, updateBoard, deleteBoard, loading, setColumns, moveColumn } = useBoard()
   const [activeCard, setActiveCard] = useState(null)
+  const [activeColumn, setActiveColumn] = useState(null)
   const [showColumnForm, setShowColumnForm] = useState(false)
   const [newColumnName, setNewColumnName] = useState('')
   const [selectedCard, setSelectedCard] = useState(null)
   const [editingBoardName, setEditingBoardName] = useState(false)
   const [boardName, setBoardName] = useState('')
+  const [showResponsiblePicker, setShowResponsiblePicker] = useState(false)
+  const [users, setUsers] = useState([])
+  const responsibleRef = useRef(null)
   const dragSourceRef = useRef(null)
 
   const sensors = useSensors(
@@ -39,6 +45,27 @@ export default function BoardView() {
     if (currentBoard) setBoardName(currentBoard.name)
   }, [currentBoard])
 
+  useEffect(() => {
+    getUsers().then(setUsers).catch(console.error)
+  }, [])
+
+  // Close responsible picker on outside click
+  useEffect(() => {
+    if (!showResponsiblePicker) return
+    const handleClick = (e) => {
+      if (responsibleRef.current && !responsibleRef.current.contains(e.target)) {
+        setShowResponsiblePicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showResponsiblePicker])
+
+  const handleChangeResponsible = async (userId) => {
+    await updateBoard(boardId, { responsible_id: userId || null })
+    setShowResponsiblePicker(false)
+  }
+
   // Deep link: open card from ?card= query param
   useEffect(() => {
     const cardId = searchParams.get('card')
@@ -55,11 +82,19 @@ export default function BoardView() {
 
   const handleDragStart = (event) => {
     const { active } = event
+    const type = active.data.current?.type
+
+    if (type === 'column') {
+      const col = columns.find(c => c.id === active.id)
+      setActiveColumn(col || null)
+      dragSourceRef.current = null
+      return
+    }
+
     const card = columns
       .flatMap(col => col.cards || [])
       .find(c => c.id === active.id)
     setActiveCard(card)
-    // Remember original position for the API call
     dragSourceRef.current = card ? { columnId: card.column_id } : null
   }
 
@@ -67,31 +102,33 @@ export default function BoardView() {
     const { active, over } = event
     if (!over || !active) return
 
+    // Ignore column-over-column here — handled in handleDragEnd
+    if (active.data.current?.type === 'column') return
+
     const activeId = active.id
     const overId = over.id
 
     // Find which columns the active and over items belong to
-    const activeColumn = findColumnByCardId(activeId)
-    if (!activeColumn) return
+    const activeCol = findColumnByCardId(activeId)
+    if (!activeCol) return
 
     // Check if we're over a column directly or a card
-    const overColumn = columns.find(col => col.id === overId) || findColumnByCardId(overId)
-    if (!overColumn) return
+    const overCol = columns.find(col => col.id === overId) || findColumnByCardId(overId)
+    if (!overCol) return
 
     // Only handle cross-column moves here
-    if (activeColumn.id === overColumn.id) return
+    if (activeCol.id === overCol.id) return
 
     setColumns(prev => {
-      const activeCards = [...(prev.find(c => c.id === activeColumn.id)?.cards || [])]
-      const overCards = [...(prev.find(c => c.id === overColumn.id)?.cards || [])]
+      const activeCards = [...(prev.find(c => c.id === activeCol.id)?.cards || [])]
+      const overCards = [...(prev.find(c => c.id === overCol.id)?.cards || [])]
 
       const activeIndex = activeCards.findIndex(c => c.id === activeId)
       if (activeIndex === -1) return prev
 
       const [movedCard] = activeCards.splice(activeIndex, 1)
-      const updatedCard = { ...movedCard, column_id: overColumn.id }
+      const updatedCard = { ...movedCard, column_id: overCol.id }
 
-      // Find insertion index
       const overCardIndex = overCards.findIndex(c => c.id === overId)
       if (overCardIndex >= 0) {
         overCards.splice(overCardIndex, 0, updatedCard)
@@ -100,8 +137,8 @@ export default function BoardView() {
       }
 
       return prev.map(col => {
-        if (col.id === activeColumn.id) return { ...col, cards: activeCards }
-        if (col.id === overColumn.id) return { ...col, cards: overCards }
+        if (col.id === activeCol.id) return { ...col, cards: activeCards }
+        if (col.id === overCol.id) return { ...col, cards: overCards }
         return col
       })
     })
@@ -110,28 +147,43 @@ export default function BoardView() {
   const handleDragEnd = async (event) => {
     const { active, over } = event
     setActiveCard(null)
+    setActiveColumn(null)
 
-    if (!over) return
+    if (!over) { dragSourceRef.current = null; return }
 
     const activeId = active.id
     const overId = over.id
-    const sourceColumnId = dragSourceRef.current?.columnId
+    const type = active.data.current?.type
 
-    // Find where the card is NOW (after handleDragOver moved it in state)
+    // --- Column reorder ---
+    if (type === 'column') {
+      if (activeId === overId) return
+      setColumns(prev => {
+        const oldIdx = prev.findIndex(c => c.id === activeId)
+        const newIdx = prev.findIndex(c => c.id === overId)
+        if (oldIdx === -1 || newIdx === -1) return prev
+        const reordered = arrayMove(prev, oldIdx, newIdx)
+        // Persist new positions
+        reordered.forEach((col, idx) => {
+          if (col.position !== idx) updateColumnPosition(col.id, { position: idx })
+        })
+        return reordered.map((col, idx) => ({ ...col, position: idx }))
+      })
+      return
+    }
+
+    // --- Card reorder / move ---
+    const sourceColumnId = dragSourceRef.current?.columnId
     const currentColumn = findColumnByCardId(activeId)
-    if (!currentColumn) return
+    if (!currentColumn) { dragSourceRef.current = null; return }
 
     const overIsColumn = columns.some(col => col.id === overId)
-
-    // Detect cross-column using the ORIGINAL column saved at drag start
     const isCrossColumn = sourceColumnId && sourceColumnId !== currentColumn.id
 
     if (isCrossColumn) {
-      // Cross-column — state already updated by handleDragOver, just call API
       const position = (currentColumn.cards || []).findIndex(c => c.id === activeId)
       moveCard(activeId, currentColumn.id, position >= 0 ? position : 0).catch(console.error)
     } else {
-      // Same column reordering
       const cards = currentColumn.cards || []
       const oldIndex = cards.findIndex(c => c.id === activeId)
       const newIndex = overIsColumn ? cards.length - 1 : cards.findIndex(c => c.id === overId)
@@ -210,6 +262,52 @@ export default function BoardView() {
                 {currentBoard?.name}
               </h1>
             )}
+            {/* Responsible selector */}
+            <div className="relative" ref={responsibleRef}>
+              <button
+                onClick={() => setShowResponsiblePicker(!showResponsiblePicker)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-white text-xs"
+                title="Responsable del tablero"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                <span className="hidden sm:inline">
+                  {currentBoard?.responsible_name || 'Sin responsable'}
+                </span>
+                {currentBoard?.responsible_name && (
+                  <span className="sm:hidden">
+                    {currentBoard.responsible_name.charAt(0).toUpperCase()}
+                  </span>
+                )}
+              </button>
+              {showResponsiblePicker && (
+                <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-2xl border border-gray-100 py-1 z-50 min-w-[200px] max-h-60 overflow-y-auto">
+                  <button
+                    onClick={() => handleChangeResponsible(null)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${!currentBoard?.responsible_id ? 'text-aikit-500 font-medium' : 'text-gray-500'}`}
+                  >
+                    Sin responsable
+                  </button>
+                  {users.map(u => (
+                    <button
+                      key={u.id}
+                      onClick={() => handleChangeResponsible(u.id)}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${currentBoard?.responsible_id === u.id ? 'text-aikit-500 font-medium' : 'text-gray-700'}`}
+                    >
+                      <div className="w-6 h-6 bg-aikit-100 rounded-lg flex items-center justify-center text-aikit-600 text-xs font-bold flex-shrink-0">
+                        {u.name?.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="truncate">
+                        <span>{u.name}</span>
+                        {u.department && <span className="text-gray-400 text-xs ml-1">({u.department})</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={handleDeleteBoard}
               className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:text-red-300 hover:bg-white/10 transition-colors"
@@ -242,16 +340,22 @@ export default function BoardView() {
           onDragEnd={handleDragEnd}
         >
           <div className="flex gap-4 items-start h-full">
-            {columns.map(column => (
-              <Column
-                key={column.id}
-                column={column}
-                onCardClick={(card) => {
-                  setSelectedCard(card)
-                  setSearchParams({ card: card.id }, { replace: true })
-                }}
-              />
-            ))}
+            <SortableContext items={columns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
+              {columns.map((column, idx) => (
+                <Column
+                  key={column.id}
+                  column={column}
+                  onCardClick={(card) => {
+                    setSelectedCard(card)
+                    setSearchParams({ card: card.id }, { replace: true })
+                  }}
+                  isFirst={idx === 0}
+                  isLast={idx === columns.length - 1}
+                  onMoveLeft={() => moveColumn(column.id, 'left')}
+                  onMoveRight={() => moveColumn(column.id, 'right')}
+                />
+              ))}
+            </SortableContext>
 
             {/* Add column button */}
             <div className="flex-shrink-0 w-72">
@@ -298,6 +402,18 @@ export default function BoardView() {
 
           <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
             {activeCard && <Card card={activeCard} isDragging />}
+            {activeColumn && (
+              <div className="flex-shrink-0 w-72 bg-white/90 backdrop-blur-sm rounded-xl shadow-xl opacity-90 border-2 border-aikit-400/30">
+                <div className="p-3 flex items-center gap-2">
+                  <span className="font-semibold text-[#0F0F0F] text-sm px-2 py-0.5 truncate">
+                    {activeColumn.name}
+                  </span>
+                  <span className="bg-aikit-50 text-aikit-600 text-xs px-2 py-0.5 rounded-full font-medium ml-auto flex-shrink-0">
+                    {(activeColumn.cards || []).length}
+                  </span>
+                </div>
+              </div>
+            )}
           </DragOverlay>
         </DndContext>
       </div>

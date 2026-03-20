@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS boards (
     name TEXT NOT NULL,
     description TEXT,
     owner_id TEXT NOT NULL REFERENCES users(id),
+    responsible_id TEXT REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

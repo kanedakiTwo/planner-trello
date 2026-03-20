@@ -9,9 +9,10 @@ const router = Router()
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const boards = await db.prepare(`
-      SELECT b.*, u.name as owner_name
+      SELECT b.*, u.name as owner_name, r.name as responsible_name
       FROM boards b
       JOIN users u ON b.owner_id = u.id
+      LEFT JOIN users r ON b.responsible_id = r.id
       ORDER BY b.created_at DESC
     `).all()
 
@@ -25,7 +26,12 @@ router.get('/', authenticateToken, async (req, res) => {
 // Get single board with columns and cards
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id)
+    const board = await db.prepare(`
+      SELECT b.*, r.name as responsible_name
+      FROM boards b
+      LEFT JOIN users r ON b.responsible_id = r.id
+      WHERE b.id = ?
+    `).get(req.params.id)
 
     if (!board) {
       return res.status(404).json({ message: 'Tablero no encontrado' })
@@ -77,13 +83,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Create board
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { name, description } = req.body
+    const { name, description, responsible_id } = req.body
     const boardId = uuidv4()
 
     await db.prepare(`
-      INSERT INTO boards (id, name, description, owner_id)
-      VALUES (?, ?, ?, ?)
-    `).run(boardId, name, description || null, req.user.id)
+      INSERT INTO boards (id, name, description, owner_id, responsible_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(boardId, name, description || null, req.user.id, responsible_id || null)
 
     // Add owner as member
     await db.prepare(`
@@ -111,14 +117,35 @@ router.post('/', authenticateToken, async (req, res) => {
 // Update board
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const { name, description } = req.body
+    const { name, description, responsible_id } = req.body
 
-    await db.prepare(`
-      UPDATE boards SET name = ?, description = ?
-      WHERE id = ?
-    `).run(name, description, req.params.id)
+    const updates = []
+    const values = []
 
-    const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id)
+    if (name !== undefined) {
+      updates.push('name = ?')
+      values.push(name)
+    }
+    if (description !== undefined) {
+      updates.push('description = ?')
+      values.push(description)
+    }
+    if (responsible_id !== undefined) {
+      updates.push('responsible_id = ?')
+      values.push(responsible_id || null)
+    }
+
+    if (updates.length > 0) {
+      values.push(req.params.id)
+      await db.prepare(`UPDATE boards SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+    }
+
+    const board = await db.prepare(`
+      SELECT b.*, r.name as responsible_name
+      FROM boards b
+      LEFT JOIN users r ON b.responsible_id = r.id
+      WHERE b.id = ?
+    `).get(req.params.id)
     res.json(board)
   } catch (error) {
     console.error('Update board error:', error)

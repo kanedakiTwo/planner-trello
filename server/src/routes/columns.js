@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
 import { authenticateToken } from '../middleware/auth.js'
+import { notifyNewCard } from '../services/teams.js'
 
 const router = Router()
 
@@ -56,6 +57,42 @@ router.post('/:columnId/cards', authenticateToken, async (req, res) => {
     `).run(cardId, req.params.columnId, title, description || null, priority || null, due_date || null, position, req.user.id)
 
     const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId)
+
+    // Notify board responsible (async, don't block response)
+    ;(async () => {
+      try {
+        const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(req.params.columnId)
+        if (!column) return
+
+        const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(column.board_id)
+        if (!board || !board.responsible_id) return
+
+        // Don't notify if the creator IS the responsible
+        if (board.responsible_id === req.user.id) return
+
+        const responsible = await db.prepare(
+          'SELECT id, name, teams_conversation_ref, teams_webhook FROM users WHERE id = ?'
+        ).get(board.responsible_id)
+
+        if (!responsible) return
+
+        const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
+        const cardUrl = `${appUrl}/board/${column.board_id}?card=${cardId}`
+
+        notifyNewCard(
+          responsible,
+          req.user.name,
+          title,
+          column.name,
+          board.name,
+          priority || null,
+          cardUrl
+        ).catch(err => console.error('New card notification error:', err))
+      } catch (err) {
+        console.error('Error preparing new card notification:', err)
+      }
+    })()
+
     res.status(201).json({ ...card, assignees: [], labels: [], comments_count: 0 })
   } catch (error) {
     console.error('Create card error:', error)

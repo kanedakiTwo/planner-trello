@@ -1,19 +1,30 @@
 import { useState } from 'react'
-import { useDroppable } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import Card from '../Card/Card'
 import { useBoard } from '../../context/BoardContext'
 
-export default function Column({ column, onCardClick }) {
+export default function Column({ column, onCardClick, onMoveLeft, onMoveRight, isFirst, isLast }) {
   const { createCard, updateColumn, deleteColumn } = useBoard()
   const [showForm, setShowForm] = useState(false)
   const [newCardTitle, setNewCardTitle] = useState('')
   const [editingName, setEditingName] = useState(false)
   const [columnName, setColumnName] = useState(column.name)
 
-  const { setNodeRef, isOver } = useDroppable({
-    id: column.id,
-  })
+  const {
+    setNodeRef,
+    attributes,
+    listeners,
+    transform,
+    transition,
+    isDragging,
+    isOver,
+  } = useSortable({ id: column.id, data: { type: 'column' } })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: transition || 'transform 200ms ease',
+  }
 
   const handleAddCard = async (e) => {
     e.preventDefault()
@@ -42,13 +53,26 @@ export default function Column({ column, onCardClick }) {
 
   return (
     <div
-      className={`flex-shrink-0 w-72 bg-white/90 backdrop-blur-sm rounded-xl flex flex-col max-h-[calc(100vh-140px)] shadow-sm ${
+      ref={setNodeRef}
+      style={style}
+      className={`flex-shrink-0 w-72 bg-white/90 backdrop-blur-sm rounded-xl flex flex-col max-h-[calc(100vh-140px)] shadow-sm transition-opacity ${
         isOver ? 'ring-2 ring-aikit-400/50' : ''
-      }`}
+      } ${isDragging ? 'opacity-40' : ''}`}
     >
       {/* Column Header */}
       <div className="p-3 flex justify-between items-center group">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex items-center gap-1 flex-1 min-w-0">
+          {/* Drag handle */}
+          <div
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 p-0.5 -ml-1"
+            title="Arrastra para mover columna"
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8-16a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+            </svg>
+          </div>
           {editingName ? (
             <input
               type="text"
@@ -76,23 +100,42 @@ export default function Column({ column, onCardClick }) {
           <span className="bg-aikit-50 text-aikit-600 text-xs px-2 py-0.5 rounded-full font-medium">
             {cards.length}
           </span>
-          <button
-            onClick={handleDeleteColumn}
-            className="text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-            title="Eliminar columna"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
+          <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={onMoveLeft}
+              disabled={isFirst}
+              className="text-gray-300 hover:text-aikit-400 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+              title="Mover columna a la izquierda"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              onClick={onMoveRight}
+              disabled={isLast}
+              className="text-gray-300 hover:text-aikit-400 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+              title="Mover columna a la derecha"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <button
+              onClick={handleDeleteColumn}
+              className="text-gray-300 hover:text-red-400 transition-colors ml-0.5"
+              title="Eliminar columna"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Cards Container */}
-      <div
-        ref={setNodeRef}
-        className="flex-1 overflow-y-auto px-2 pb-1 custom-scrollbar min-h-[50px]"
-      >
+      <div className="flex-1 overflow-y-auto px-2 pb-1 custom-scrollbar min-h-[50px]">
         <SortableContext items={cards.map(c => c.id)} strategy={verticalListSortingStrategy}>
           <div className="space-y-2">
             {cards.map(card => (

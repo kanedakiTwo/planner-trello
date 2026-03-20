@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useBoard } from '../context/BoardContext'
-import { getUserSettings, updateTeamsWebhook, linkTeamsAccount, unlinkTeamsAccount } from '../services/auth'
+import { getUserSettings, updateTeamsWebhook, linkTeamsAccount, unlinkTeamsAccount, getUsers } from '../services/auth'
 import { getBoardColor } from '../utils/boardColors'
 
 export default function Dashboard() {
@@ -12,6 +12,8 @@ export default function Dashboard() {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [newBoardName, setNewBoardName] = useState('')
   const [newBoardDesc, setNewBoardDesc] = useState('')
+  const [newBoardResponsible, setNewBoardResponsible] = useState('')
+  const [users, setUsers] = useState([])
   const [teamsWebhook, setTeamsWebhook] = useState('')
   const [savingWebhook, setSavingWebhook] = useState(false)
   const [teamsLinked, setTeamsLinked] = useState(false)
@@ -21,6 +23,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchBoards()
+    getUsers().then(setUsers).catch(console.error)
   }, [fetchBoards])
 
   // Escape to close modals
@@ -39,9 +42,10 @@ export default function Dashboard() {
     e.preventDefault()
     if (!newBoardName.trim()) return
 
-    await createBoard({ name: newBoardName, description: newBoardDesc })
+    await createBoard({ name: newBoardName, description: newBoardDesc, responsible_id: newBoardResponsible || null })
     setNewBoardName('')
     setNewBoardDesc('')
+    setNewBoardResponsible('')
     setShowModal(false)
   }
 
@@ -185,9 +189,19 @@ export default function Dashboard() {
                 to={`/board/${board.id}`}
                 className={`${getBoardColor(board.id).gradient} rounded-2xl p-5 h-36 hover:scale-[1.02] hover:shadow-lg transition-all duration-200 flex flex-col justify-between group`}
               >
-                <h3 className="text-white font-bold text-lg leading-tight">{board.name}</h3>
-                {board.description && (
-                  <p className="text-white/70 text-sm line-clamp-2 group-hover:text-white/90 transition-colors">{board.description}</p>
+                <div>
+                  <h3 className="text-white font-bold text-lg leading-tight">{board.name}</h3>
+                  {board.description && (
+                    <p className="text-white/70 text-sm line-clamp-2 group-hover:text-white/90 transition-colors">{board.description}</p>
+                  )}
+                </div>
+                {board.responsible_name && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center text-white text-[10px] font-bold">
+                      {board.responsible_name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-white/70 text-xs">{board.responsible_name}</span>
+                  </div>
                 )}
               </Link>
             ))}
@@ -215,7 +229,7 @@ export default function Dashboard() {
                   required
                 />
               </div>
-              <div className="mb-6">
+              <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-600 mb-1.5">
                   Descripcion (opcional)
                 </label>
@@ -226,6 +240,21 @@ export default function Dashboard() {
                   placeholder="Describe el proposito de este tablero"
                   rows={3}
                 />
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-600 mb-1.5">
+                  Responsable (recibe notificaciones de nuevas tarjetas)
+                </label>
+                <select
+                  value={newBoardResponsible}
+                  onChange={(e) => setNewBoardResponsible(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-aikit-400/30 focus:border-aikit-400 transition-colors outline-none text-sm"
+                >
+                  <option value="">Sin responsable</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>{u.name}{u.department ? ` (${u.department})` : ''}</option>
+                  ))}
+                </select>
               </div>
               <div className="flex gap-3 justify-end">
                 <button

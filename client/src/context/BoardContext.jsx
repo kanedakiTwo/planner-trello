@@ -101,6 +101,27 @@ export function BoardProvider({ children }) {
     setColumns(prev => prev.filter(col => col.id !== columnId))
   }
 
+  const moveColumn = async (columnId, direction) => {
+    setColumns(prev => {
+      const idx = prev.findIndex(c => c.id === columnId)
+      const swapIdx = direction === 'left' ? idx - 1 : idx + 1
+      if (swapIdx < 0 || swapIdx >= prev.length) return prev
+
+      const next = [...prev]
+      const posA = next[idx].position
+      const posB = next[swapIdx].position
+      next[idx] = { ...next[idx], position: posB }
+      next[swapIdx] = { ...next[swapIdx], position: posA }
+      ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
+
+      // Persist both swapped positions
+      boardService.updateColumn(next[swapIdx].id, { position: posA })
+      boardService.updateColumn(next[idx].id, { position: posB })
+
+      return next
+    })
+  }
+
   return (
     <BoardContext.Provider value={{
       boards,
@@ -119,7 +140,8 @@ export function BoardProvider({ children }) {
       updateCard,
       moveCard,
       deleteCard,
-      setColumns
+      setColumns,
+      moveColumn
     }}>
       {children}
     </BoardContext.Provider>

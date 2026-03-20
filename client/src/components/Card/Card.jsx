@@ -16,7 +16,7 @@ export default function Card({ card, onClick, isDragging }) {
     transform,
     transition,
     isDragging: isSortableDragging,
-  } = useSortable({ id: card.id })
+  } = useSortable({ id: card.id, data: { type: 'card' } })
 
   const style = {
     transform: CSS.Transform.toString(transform),

@@ -170,6 +170,37 @@ export async function notifyColumnChange(creatorUser, moverName, cardTitle, from
   return false
 }
 
+export async function notifyNewCard(responsibleUser, creatorName, cardTitle, columnName, boardName, priority, cardUrl) {
+  const facts = [
+    { name: "Tablero", value: boardName },
+    { name: "Columna", value: columnName },
+    { name: "Creada por", value: creatorName }
+  ]
+  if (priority) {
+    const priorityLabels = { low: 'Baja', medium: 'Media', high: 'Alta', urgent: 'Urgente' }
+    facts.push({ name: "Prioridad", value: priorityLabels[priority] || priority })
+  }
+
+  const message = {
+    title: `Nueva tarjeta en tu tablero`,
+    subtitle: `"${cardTitle}" fue creada en ${boardName}`,
+    text: `**${creatorName}** creo una nueva tarjeta en la columna **${columnName}**`,
+    facts,
+    actionUrl: cardUrl
+  }
+
+  if (responsibleUser.teams_conversation_ref) {
+    const sent = await sendProactiveMessage(responsibleUser.teams_conversation_ref, message)
+    if (sent) return true
+  }
+
+  if (responsibleUser.teams_webhook) {
+    return sendTeamsNotification(responsibleUser.teams_webhook, message)
+  }
+
+  return false
+}
+
 export async function notifyMention(mentionedUser, mentionerName, cardTitle, commentContent, boardName, cardUrl) {
   const message = {
     title: `Te han mencionado en Planner`,

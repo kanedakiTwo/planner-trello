@@ -220,10 +220,16 @@ export default function CardModal({ card, onClose }) {
             />
             <p className="text-xs text-gray-400 mt-1.5">
               en columna <span className="font-medium text-aikit-400">{column?.name}</span>
+              {card.created_by_name && (
+                <>
+                  <span className="mx-1.5">·</span>
+                  Creada por <span className="font-medium text-gray-500">{card.created_by_name}</span>
+                </>
+              )}
               {card.created_at && (
                 <>
                   <span className="mx-1.5">·</span>
-                  Creada el {new Date(card.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  {new Date(card.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
                 </>
               )}
             </p>
