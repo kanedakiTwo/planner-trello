@@ -569,8 +569,19 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
     const priorityEmoji = { urgent: '🔴', high: '🟠', medium: '🟡', low: '🟢' }
     const priorityLabel = { urgent: 'Urgente', high: 'Alta', medium: 'Media', low: 'Baja' }
 
-    const enProgreso = cards.filter(c => c.column_name.toLowerCase() === 'en progreso')
-    const resto = cards.filter(c => c.column_name.toLowerCase() !== 'en progreso')
+    // Group by actual column name, preserving order from query
+    const columnGroups = []
+    const columnMap = new Map()
+    for (const card of cards) {
+      if (!columnMap.has(card.column_name)) {
+        const group = { name: card.column_name, cards: [] }
+        columnMap.set(card.column_name, group)
+        columnGroups.push(group)
+      }
+      columnMap.get(card.column_name).cards.push(card)
+    }
+
+    const columnEmojis = { 'en progreso': '🔧', 'por hacer': '📋', 'hecho': '✅' }
 
     const bodyItems = [
       {
@@ -582,18 +593,18 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
       }
     ]
 
-    const buildSection = (sectionTitle, sectionCards, emoji) => {
-      if (sectionCards.length === 0) return
+    for (const group of columnGroups) {
+      const emoji = columnEmojis[group.name.toLowerCase()] || '📌'
 
       bodyItems.push({
         "type": "TextBlock",
-        "text": `${emoji} ${sectionTitle} (${sectionCards.length})`,
+        "text": `${emoji} ${group.name} (${group.cards.length})`,
         "weight": "Bolder",
         "spacing": "Medium",
         "size": "Small"
       })
 
-      for (const card of sectionCards) {
+      for (const card of group.cards) {
         const pEmoji = priorityEmoji[card.priority] || '⚪'
         const pLabel = priorityLabel[card.priority] || ''
         let subtitle = `${card.board_name}`
@@ -653,9 +664,6 @@ Una vez vinculado, recibiras notificaciones y podras crear tareas directamente d
         })
       }
     }
-
-    buildSection('En progreso', enProgreso, '🔧')
-    buildSection('Por hacer', resto, '📋')
 
     const adaptiveCard = CardFactory.adaptiveCard({
       "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../database/db.js'
 import { authenticateToken } from '../middleware/auth.js'
-import { notifyMention, notifyColumnChange } from '../services/teams.js'
+import { notifyMention, notifyColumnChange, notifyAssignment } from '../services/teams.js'
 import { logAction, logNotification, logError } from '../utils/logger.js'
 
 const router = Router()
@@ -180,9 +180,25 @@ router.post('/:id/assignees', authenticateToken, async (req, res) => {
       ON CONFLICT DO NOTHING
     `).run(req.params.id, userId)
 
-    const card = await db.prepare('SELECT title FROM cards WHERE id = ?').get(req.params.id)
-    const user = await db.prepare('SELECT name FROM users WHERE id = ?').get(userId)
-    logAction(req, 'Asignar usuario', { card: card?.title, asignado: user?.name })
+    const card = await db.prepare(`
+      SELECT c.title, c.id, col.name as column_name, col.board_id, b.name as board_name
+      FROM cards c
+      JOIN columns col ON c.column_id = col.id
+      JOIN boards b ON col.board_id = b.id
+      WHERE c.id = ?
+    `).get(req.params.id)
+    const assignee = await db.prepare('SELECT id, name, teams_conversation_ref, teams_webhook FROM users WHERE id = ?').get(userId)
+    logAction(req, 'Asignar usuario', { card: card?.title, asignado: assignee?.name })
+
+    // Notify assignee via Teams (don't notify if assigning yourself)
+    if (assignee && card && userId !== req.user.id) {
+      const appUrl = process.env.APP_URL || 'https://planner-trello-production.up.railway.app'
+      const cardUrl = `${appUrl}/board/${card.board_id}?card=${card.id}`
+      notifyAssignment(assignee, req.user.name, card.title, card.column_name, card.board_name, cardUrl)
+        .then(sent => logNotification('Asignacion', assignee.name, sent, { card: card.title, board: card.board_name }))
+        .catch(err => logError('Notificacion asignacion', err))
+    }
+
     res.json({ message: 'Asignado agregado' })
   } catch (error) {
     logError('Add assignee', error)

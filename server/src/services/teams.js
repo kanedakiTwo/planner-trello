@@ -201,6 +201,31 @@ export async function notifyNewCard(responsibleUser, creatorName, cardTitle, col
   return false
 }
 
+export async function notifyAssignment(assigneeUser, assignerName, cardTitle, columnName, boardName, cardUrl) {
+  const message = {
+    title: `Te han asignado una tarjeta`,
+    subtitle: `"${cardTitle}" en ${boardName}`,
+    text: `**${assignerName}** te asigno la tarjeta **${cardTitle}**`,
+    facts: [
+      { name: "Tablero", value: boardName },
+      { name: "Columna", value: columnName },
+      { name: "Asignado por", value: assignerName }
+    ],
+    actionUrl: cardUrl
+  }
+
+  if (assigneeUser.teams_conversation_ref) {
+    const sent = await sendProactiveMessage(assigneeUser.teams_conversation_ref, message)
+    if (sent) return true
+  }
+
+  if (assigneeUser.teams_webhook) {
+    return sendTeamsNotification(assigneeUser.teams_webhook, message)
+  }
+
+  return false
+}
+
 export async function notifyMention(mentionedUser, mentionerName, cardTitle, commentContent, boardName, cardUrl) {
   const message = {
     title: `Te han mencionado en Planner`,
